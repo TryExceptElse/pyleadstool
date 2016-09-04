@@ -795,6 +795,7 @@ class TranslationDialog(QtW.QWidget):
                  target_start,
                  source_start,
                  prior_widget=None):
+        print('Translation Dlg began')
         super().__init__()
         assert isinstance(source_sheet, (Sheet, str, int)), source_sheet
         assert isinstance(target_sheet, (Sheet, str, int)), target_sheet
@@ -1170,6 +1171,7 @@ class PreliminarySettings(QtW.QWidget):
             # (lesson learned: don't use 'quit' / SystemExit in a macro)
 
     def __init__(self, starting_dictionary=None):
+        print('Preliminary Dlg began')
         super().__init__()
         # values of fields, may be passed in if user has previously
         # entered settings, or is perhaps loading existing settings
@@ -1189,6 +1191,7 @@ class PreliminarySettings(QtW.QWidget):
 
         # create fields; add one instance of each field class
         self.fields = []
+        print('began field creation')
         for x, field_class in enumerate(field_classes):
             dict_str = field_class.dict_string
             start_str = '' if dict_str not in values else values[dict_str]
@@ -1207,6 +1210,7 @@ class PreliminarySettings(QtW.QWidget):
         grid.add_row(self.CancelButton(), OkButton(self._ok))
         # todo: limit / freeze size of window
         self.setWindowTitle(APP_WINDOW_TITLE)
+        print('finished creating, showing.')
         self.show()
 
     def _ok(self):
@@ -1247,6 +1251,7 @@ class PreliminarySettings(QtW.QWidget):
 
 class FinalSettings(QtW.QWidget):
     def __init__(self, **kwargs):
+        print('Final Settings dlg began')
         super().__init__()
         self.prior_widget = kwargs.get('prior_widget')
         self._settings = kwargs
@@ -1630,10 +1635,11 @@ class ExpandingGridLayout(QtW.QGridLayout):
 
 class Settings:
     def __init__(self, settings_file_path):
+        print('created settings')
         self.file_path = settings_file_path
 
     @property
-    def setting(self):
+    def settings(self):
         # todo
         return dict()
 
@@ -1650,14 +1656,16 @@ def lead_app():
     # push data to target
     # close / display exit message
     print('started pyleadsmacro')
+    print(sys.version_info)
     app = QtW.QApplication([''])  # expects list of strings.
+    print('started app')
 
     try:
         # get settings path
         settings_path = ''  # placeholder. todo: get str, cross-platform
         # build and show first window
         settings = Settings(settings_path).settings
-        PreliminarySettings(settings)  # get settings from prelim dialog
+        prelim = PreliminarySettings(settings)  # get settings from prelim dialog
 
         sys.exit(app.exec_())
         # todo: refactor all the dialogs so they return to this point,
