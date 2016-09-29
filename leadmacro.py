@@ -1,4 +1,5 @@
 """
+    ~
     Copyright (c) 2016 John Schwarz
 
 
@@ -44,6 +45,10 @@ KNOWN BUGS:
 Attempting to open two instances of the macro simultaneously will
 freeze both macros and the office program
 
+TODO:
+skip empty column names on import sheet / export sheet
+save/load column source table
+
 INSTALL:
 for libreoffice, requires python scripts module installed.
 in ubuntu, this can be installed via
@@ -51,12 +56,15 @@ in ubuntu, this can be installed via
 
 """
 
+import pickle
 
 import PyQt5.QtWidgets as QtW
-import sys
 
-DESKTOP = XSCRIPTCONTEXT.getDesktop()  # not an error; provided by macro caller
-MODEL = DESKTOP.getCurrentComponent()
+import sys
+import os
+import platform
+
+APP_FOLDER_NAME = 'leadsmacro'
 
 MAX_CELL_GAP = 10  # max distance between inhabited cells in the workbook
 
@@ -70,7 +78,7 @@ DEFAULT_CONTENT_MARGIN_Y = 5
 
 STANDARD_GRID_SPACING = 10
 
-NONE_STRING = '< None >'
+NONE_STRING = '< Empty >'
 
 # colors #
 
@@ -81,443 +89,1145 @@ CORAL = 0xFF7F50
 ORANGE = 0xBDB76B
 KHAKI = 0xF0E68C
 
+WHITESPACE_CELL_COLOR = FIREBRICK
+WHITESPACE_ROW_COLOR = CORAL
+DUPLICATE_CELL_COLOR = ORANGE
+DUPLICATE_ROW_COLOR = KHAKI
+
+# Settings Keys #
+
+SOURCE_SHEET_KEY = 'Source Sheet'
+TARGET_SHEET_KEY = 'Target Sheet'
+SOURCE_START_KEY = 'Source Start'
+TARGET_START_KEY = 'Target Start'
+DUPLICATE_ACTION_KEY = 'Duplicate Action'
+WHITESPACE_ACTION_KEY = 'Whitespace Action'
+COLUMN_TRANSLATIONS_KEY = 'Column Translations'
+
+SOURCE_COLUMN_NAME_KEY = 'source_column_name'
+TARGET_COLUMN_NAME_KEY = 'target_column_name'
+SOURCE_COLUMN_INDEX_KEY = 'source_column_i'
+TARGET_COLUMN_INDEX_KEY = 'target_column_i'
+WHITESPACE_CHK_KEY = 'check_for_whitespace'
+DUPLICATE_CHK_KEY = 'check_for_duplicates'
+
+WHITESPACE_REMOVE_STR = 'delete'
+WHITESPACE_HIGHLIGHT_STR = 'highlight'
+WHITESPACE_IGNORE_STR = 'ignore'
+
+DUPLICATE_REMOVE_ROW_STR = 'remove row'
+DUPLICATE_HIGHLIGHT_STR = 'highlight'
+DUPLICATE_IGNORE_STR = 'ignore'
+
+
 ###############################################################################
-# Model Classes / PyUno class handling
+# BOOK INTERFACE
 
 
 class Model:
     """
-    Handles usages of PyUno Model
+    Abstract model to be extended by office interface specific
+    subclasses in Office.
     """
-    def __init__(self, py_uno_model):
-        if not hasattr(py_uno_model, 'Sheets'):
-            raise AttributeError(
-                'Model does not have Sheets. '
-                'This macro needs to be run from a calc workbook.'
-            )
-        self.model = py_uno_model
+    def __init__(self) -> None:
+        raise NotImplementedError
 
-    def __getitem__(self, item):
-        assert isinstance(item, (str, int))
-        if isinstance(item, int):
-            return Sheet(self.model.Sheets.getByIndex(item))
-        else:
-            return Sheet(self.model.Sheets.getByName(item))
+    def __getitem__(self, item: str or int):
+        """
+        Gets sheet from model, either by the str name of the sheet,
+        or the int index.
+        :param item: str or int
+        :return: Office.Sheet
+        """
+        raise NotImplementedError
+        # implemented by office program specific subclasses
 
-    def sheet_exists(self, *args):
-        """
-        Checks each string passed as arg to see if it exists as a
-        sheet name. If so, returns it, otherwise, moves to the next
-        :param args: strings
-        :return: str of first viable sheet name or None if no
-        viable name is found
-        """
-        assert all([isinstance(arg, str) for arg in args])
-        for sheet_name in args:
-            try:
-                self.model.Sheets.getByName(sheet_name)
-            except:  # todo: find actual exception class
-                pass
-            else:
-                return sheet_name
+    def sheet_exists(self, sheet_name: str) -> bool:
+        raise NotImplementedError
+        # implemented by office program specific subclasses
+
+    @property
+    def sheets(self):
+        raise NotImplementedError
+        # implemented by office program specific subclasses
 
 
 class Sheet:
-    """
-    Handles usage of a workbook sheet
-    """
-    sheet = None
     _reference_row_index = 0
     _reference_column_index = 0
 
-    def __init__(self, sheet, reference_row_index=0, reference_column_index=0):
-        self.sheet = sheet
-        self.reference_row_index = reference_row_index
-        self.reference_column_index = reference_column_index
+    def __init__(self) -> None:
+        raise NotImplementedError
 
-    def get_column(self, column_identifier):
+    def get_column(
+            self,
+            column_identifier: int or float or str
+    ):
         """
-        Gets column from name
-        :param column_identifier: str or int
-        identifying the column to retrieve
-        :return: Column
+        Gets column by name if identifier is str, otherwise,
+        attempts to get column by index.
+        :param column_identifier: int, float, or str
+        :return: Office.Column
         """
-        assert isinstance(column_identifier, (int, str)), \
-            'getitem must be passed an int or str, got %s' % column_identifier
-        if isinstance(column_identifier, int):
-            column_index = column_identifier
+        if isinstance(column_identifier, str):
+            return self.get_column_by_name(column_identifier)
         else:
-            for i, cell in enumerate(self.reference_row):
-                if cell.value == column_identifier:
-                    column_index = i
-                    break
+            return self.get_column_by_index(column_identifier)
+
+    def get_column_by_index(self, column_index: int):
+        raise NotImplementedError
+        # implemented by office program specific subclasses
+
+    def get_column_by_name(self, column_name: int or float or str):
+        """
+        Gets column from a passed reference value which is compared
+        to each cell value in the reference row.
+        This function will return the first column whose name matches
+        the passed value.
+        :return: Office.Column
+        """
+        x = self.get_column_index_from_name(column_name)
+        return self.get_column_by_index(x) if x is not None else None
+
+    def get_column_index_from_name(
+        self,
+        column_name: int or float or str
+    ) -> int or None:
+        """
+        Gets column index from name
+        :param column_name: int, float, or str
+        :return: int or None
+        """
+        for x, cell in enumerate(self.reference_row):
+            if cell.value == column_name:
+                return x
+
+    def get_row(self, row_identifier: int or float or str):
+        """
+        Gets row by name if identifier is str, otherwise by index
+        :param row_identifier: int, float, or str
+        :return: Office.Row
+        """
+        if isinstance(row_identifier, str):
+            return self.get_row_by_name(row_identifier)
+        else:
+            return self.get_row_by_index(row_identifier)
+
+    def get_row_by_index(self, row_index: int or str):
+        raise NotImplementedError
+        # implemented by office program specific subclasses
+
+    def get_row_by_name(self, row_name: int or str or float):
+        """
+        Gets row from a passed reference value which is compared
+        to each cell value in the reference row.
+        This function will return the first row whose name matches
+        the passed value.
+        :return: Office.Column
+        """
+        y = self.get_row_index_from_name(row_name)
+        return self.get_row_by_index(y) if y is not None else None
+
+    def get_row_index_from_name(
+            self,
+            row_name: int or float or str
+    ) -> int or None:
+        """
+        Gets index of a row from passed name
+        :param row_name: int, float, or str
+        :return: int or None
+        """
+        for y, cell in enumerate(self.rows):
+            if cell.value == row_name:
+                return y
+
+    def get_cell(self, cell_identifier, **kwargs):
+        # if cell_identifier is list or tuple, get cell via
+        # x, y coordinates
+        if isinstance(cell_identifier, (list, tuple)):
+            x_identifier = cell_identifier[0]
+            y_identifier = cell_identifier[1]
+            x_identifier_type = kwargs.get('x_identifier_type', None)
+            y_identifier_type = kwargs.get('y_identifier_type', None)
+            # sanity check
+            assert x_identifier_type in ('index', 'name', None), \
+                "x identifier type should be 'index', 'name', or None." \
+                "Instead got %s" % x_identifier_type
+            assert y_identifier_type in ('index', 'name', None), \
+                "y identifier type should be 'index', 'name', or None." \
+                'instead got %s' % y_identifier_type
+            if (x_identifier_type == 'name' or
+                x_identifier_type is None and isinstance(
+                    x_identifier, str)):
+                column = self.get_column_by_name(x_identifier)
             else:
-                return
-        return Column(sheet=self.sheet,
-                      column_index=column_index,
-                      reference_column_index=self.reference_column_index)
-
-    def get_row(self, row_identifier):
-        """
-        Gets row from identifier
-        :param row_identifier:
-        :return:
-        """
-        assert isinstance(row_identifier, (int, str)), \
-            'getitem must be passed an int or str, got %s' % row_identifier
-        row_index = None
-        if isinstance(row_identifier, int):
-            row_index = row_identifier
-        else:
-            for i, cell in enumerate(self.reference_column):
-                if cell.value == row_identifier:
-                    row_index = i
-                    break
-        return Row(sheet=self.sheet,
-                   row_index=row_index,
-                   reference_row_index=self.reference_row_index
-                   ) if row_index is not None else None
-
-    def get_cell(self, position):
-        try:
-            position = tuple(position)
-        except ValueError:
-            raise ValueError('position passed to \'get cell\' method '
-                             'must be a tuple or convertible to a tuple')
-        return Cell(self.sheet, position)
+                assert isinstance(x_identifier, int)  # sanity check
+                column = self.get_column_by_index(x_identifier)
+            if (y_identifier_type == 'name' or
+                x_identifier_type is None and isinstance(
+                    y_identifier, str)):
+                return column.get_cell_by_reference(y_identifier)
+            else:
+                return column.get_cell_by_index(y_identifier)
 
     @property
-    def columns(self):
+    def reference_row_index(self) -> int:
         """
-        Returns list of columns in sheet
-        :return: list of Columns
-        """
-        return [self.get_column(x) for x in range(len(self.get_row(0)))]
-
-    @property
-    def rows(self):
-        """
-        Returns list of rows in sheet
-        :return: list of Rows
-        """
-        return [self.get_row(y) for y in range(len(self.get_column(0)))]
-
-    @property
-    def reference_row_index(self):
-        """
-        Gets reference row index
+        Gets index of reference row
         :return: int
         """
         return self._reference_row_index
 
     @reference_row_index.setter
-    def reference_row_index(self, new_index):
+    def reference_row_index(self, new_index: int) -> None:
         """
-        Sets reference row index
+        Sets reference row by passing the index of the new row.
+        Must be > 0
         :param new_index: int
+        :return: None
         """
-        assert isinstance(new_index, int)
+        if new_index < 0:
+            raise IndexError('Reference row index must be > 0')
         self._reference_row_index = new_index
 
     @property
-    def reference_column_index(self):
+    def reference_row(self):
         """
-        Gets reference column index
+        Gets reference row
+        :return: Office.Row
+        """
+        return self.get_row(self.reference_row_index)
+
+    @property
+    def reference_column_index(self) -> int:
+        """
+        Gets index of reference column
         :return: int
         """
         return self._reference_column_index
 
     @reference_column_index.setter
-    def reference_column_index(self, new_index):
+    def reference_column_index(self, new_index) -> None:
         """
-        Sets reference column index
+        Sets reference column by passing the index of the new
+        reference column.
+        Must be > 0.
         :param new_index: int
+        :return: None
         """
-        assert isinstance(new_index, int)
+        if new_index < 0:
+            raise IndexError('Reference row index must be > 0')
         self._reference_column_index = new_index
 
     @property
-    def reference_row(self):
-        """
-        Gets reference row
-        :return: Row
-        """
-        return Row(sheet=self.sheet,
-                   row_index=self.reference_row_index)
-
-    @property
     def reference_column(self):
         """
         Gets reference column
-        :return: Column
+        :return: Office.Column
         """
-        return Column(sheet=self.sheet,
-                      column_index=self.reference_column_index)
+        return self.get_column(self.reference_column_index)
+
+    @property
+    def columns(self):
+        return LineSeries(reference_line=self.reference_row)
+
+    @property
+    def rows(self):
+        return LineSeries(reference_line=self.reference_column)
 
 
-class Column:
-    """
-    Handles usage of a column within a sheet
-    """
-    def __init__(self, sheet, column_index, reference_column_index=0):
-        self.sheet = sheet
-        self.column_index = column_index
-        self.reference_column_index = reference_column_index
-        self._length = None
+class LineSeries:
+    """Class storing collection of Line, Column, or Row objects"""
 
-    def __getitem__(self, cell_identifier):
+    def __init__(self, reference_line) -> None:
+        self.reference_line = reference_line
+
+    def __getitem__(self, item: int or float or str):
         """
-        Gets cell from passed identifier
-        :param cell_identifier: str or int
-        :return: Cell
+        If item is int, returns line of that index, otherwise looks
+        for a line of that name.
+        :param item: int, float, or str
+        :return: Line or None
         """
-        assert isinstance(cell_identifier, (int, str))
-        if isinstance(cell_identifier, int):
-            return Cell(self.sheet, (self.column_index, cell_identifier))
+        if isinstance(item, int):
+            return self.get_by_index(item)
         else:
-            for x, cell in enumerate(self.reference_column):
-                if cell.value == cell_identifier:
-                    return self[x]
+            return self.get_by_name(item)
 
     def __iter__(self):
-        """
-        Returns iterable line of cells
-        :return: Iterable
-        """
-        return CellLine(sheet=self.sheet,
-                        axis='y',
-                        index=self.column_index)
+        for cell in self.reference_line:
+            if self._contents_type == 'rows':
+                yield cell.row
+            elif self._contents_type == 'columns':
+                yield cell.column
 
-    def __len__(self):
-        n = 0
-        for each in self:
-            n += 1
-        return n
+    def get_by_name(self, name: int or float or str):
+        """
+        Gets line from passed line name.
+        Returns None if no line of that name is found.
+        :param name: int, float or str
+        :return: Line or None
+        """
+        for cell in self.reference_line:
+            if cell.value == name:
+                if self._contents_type == 'columns':
+                    return cell.column
+                elif self._contents_type == 'rows':
+                    return cell.row
+
+    def get_by_index(self, index: int):
+        """
+        Gets line from passed line index
+        :param index:
+        :return: Line
+        """
+        if self._contents_type == 'rows':
+            return self.sheet.get_row_by_index(index)
+        elif self._contents_type == 'columns':
+            return self.sheet.get_column_by_index(index)
 
     @property
-    def reference_column(self):
+    def sheet(self) -> Sheet:
         """
-        Gets reference column
-        :return: Column
+        Gets sheet that owns the Columns or Rows of this Lines obj.
+        :return: Sheet
         """
-        return Column(sheet=self.sheet,
-                      column_index=self.reference_column_index)
+        return self.reference_line.sheet
 
-    def find_duplicates(self):
+    @property
+    def names(self):
         """
-        returns a list of indexes at which duplications occur.
-        The first instance of a cell value will not be considered a
-        duplicate.
-        :return: list of int
+        Yields names of lines in LineList
+        :return: int, float, or str
+        """
+        for line in self:
+            yield line.name
+
+    @property
+    def indexes(self):
+        """
+        Yields indexes of lines in LineList
+        :return: int
+        """
+        for line in self:
+            yield line.index
+
+    @property
+    def _contents_type(self) -> str:
+        if isinstance(self.reference_line, Row):
+            return 'columns'
+        elif isinstance(self.reference_line, Column):
+            return 'rows'
+
+
+class Line:
+    sheet = None  # these are all to be set on init in subclasses
+    index = None  # index of this line.
+
+    def __getitem__(self, item: int or str):
+        raise NotImplementedError
+        # implemented by office program specific subclasses
+
+    def __iter__(self):
+        raise NotImplementedError
+        # implemented by office program specific subclasses
+
+    def __len__(self):
+        raise NotImplementedError
+        # implemented by office program specific subclasses
+
+    def get_cell_by_index(self, index: int):
+        raise NotImplementedError
+        # implemented by Row and Column in office program
+        # specific subclasses
+
+    def get_cell_by_reference(self, reference: str or float or int):
+        for i, cell in enumerate(self._reference_line):
+            if cell.value == reference:
+                return self.get_cell_by_index(i)
+
+    def clear(self, include_header: bool = False):
+        """
+        Clears line of cells.
+        If Include header is True; clears cell data in cells
+        preceding and including re
+        a
+        :param include_header: bool
+        :return: None
+        """
+        [cell.clear() for i, cell in enumerate(self)
+         if i > self.name_cell_index or include_header]
+
+    @property
+    def _reference_line(self):
+        raise NotImplementedError
+
+    @property
+    def duplicates(self):
+        """
+        Returns generator of duplicate cells in Column.
+        :return: cells (iterator)
         """
         cell_values = set()
-        duplicate_indexes = []
-        for i, cell in enumerate(self):
-            if cell.value in cell_values:
-                duplicate_indexes.append(i)
-            cell_values.add(cell.value)
-        return duplicate_indexes
+        for cell in self:
+            if cell.value_without_whitespace in cell_values:
+                yield cell
+            cell_values.add(cell.value_without_whitespace)
+
+    @property
+    def name_cell_index(self) -> int:
+        """
+        Gets the index of the cell which contains this line's name.
+        :return: int
+        """
+        raise NotImplementedError
 
     @property
     def name(self):
         """
-        Returns name of column, based on value stored in header
-        :return: str
+        Returns name of line, which is the value stored in the
+        line's header cell, located in the sheet's reference
+        row or column.
+        :return: int, float, str or None
         """
-        return self[0].value
+        return self[self.name_cell_index].value
 
 
-class Row:
+class Column(Line):
     """
-    Handles usage of a row within a sheet
+    # this class exists for typing purposes, to provide a
+    # common parent for Rows
     """
-    def __init__(self, sheet, row_index, reference_row_index=0):
-        self.sheet = sheet
-        self.row_index = row_index
-        self.reference_row_index = reference_row_index
 
-    def __getitem__(self, item):
-        assert isinstance(item, (str, int))
-        if isinstance(item, int):
-            return Cell(sheet=self.sheet, position=(item, self.row_index))
-        else:
-            for x, cell in enumerate(self.reference_row):
-                if cell.value == item:
-                    return self[x]
+    @property
+    def _reference_line(self):
+        return self.reference_column
 
-    def __iter__(self):
-        return CellLine(sheet=self.sheet,
-                        axis='x',
-                        index=self.row_index)
+    @property
+    def reference_column(self):
+        return self.sheet.reference_column
 
-    def __len__(self):
-        n = 0
-        for each in self:
-            n += 1
-        return n
+    @property
+    def name_cell_index(self) -> int:
+        """
+        Gets the index of the cell which contains this
+        Column's name.
+        :return: int
+        """
+        return self.sheet.reference_row_index
+
+
+class Row(Line):
+    """
+    # this class exists for typing purposes, to provide a
+    # common parent for Rows
+    """
+
+    @property
+    def _reference_line(self):
+        return self.reference_row
 
     @property
     def reference_row(self):
         """
-        Gets reference row
+        Gets reference row.
+        This is the row that contains the names of the
+        intersecting columns, allowing fetching of cells in
+        this row via passage of a reference string
         :return: Row
         """
-        return Row(sheet=self.sheet,
-                   row_index=self.reference_row_index)
+        return self.sheet.reference_row
 
-
-class CellLine:
-    """
-    Generator iterable that returns cells of a particular row or column
-    """
-    sheet = None
-    axis = None
-    index = None
-    i = 0
-    highest_inhabited_i = -1
-    # max_i = 0
-
-    def __init__(self, sheet, axis, index):
-        assert axis in ('x', 'y')
-        self.sheet = sheet
-        self.axis = axis
-        self.index = index
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        x, y = (self.index, self.i) if self.axis == 'y' else \
-            (self.i, self.index)
-        cell = Cell(self.sheet, (x, y))
-        if cell.string == '' and self.i > self.highest_inhabited_i:
-            for x in range(1, MAX_CELL_GAP):
-                test_x, test_y = (self.index, self.i + x) if \
-                    self.axis == 'y' else (self.i + x, self.index)
-                test_cell = Cell(self.sheet, position=(test_x, test_y))
-                if test_cell.string != '':
-                    self.highest_inhabited_i = self.i + x
-                    break
-            else:
-                raise StopIteration()
-        self.i += 1
-        return cell
+    @property
+    def name_cell_index(self) -> int:
+        """
+        Gets the index of the cell which contains this Row's name.
+        :return: int
+        """
+        return self.sheet.reference_column_index
 
 
 class Cell:
-    """
-    Handles usage of an individual cell
-    """
-    def __init__(self, sheet, position):
-        assert all([isinstance(item, int) for item in position])
-        assert len(position) == 2
-        self.position = tuple(position)
-        self.sheet = sheet
+    position = None
+    sheet = None
 
-    def set_color(self, color):
-        """
-        Sets cell background color
-        :param color: int, list or tuple
-        """
-        assert isinstance(color, (int, tuple, list))
-        if isinstance(color, int):
-            color_int = color
-        else:
-            color_int = color[0]*256**2 + color[1]*256 + color[2]
-        self._source_cell.CellBackColor = color_int
+    def __init__(self):
+        raise NotImplementedError
+
+    def set_color(self, color: int or list or tuple) -> None:
+        raise NotImplementedError
+
+    def remove_whitespace(self):
+        raise NotImplementedError
+
+    def clear(self):
+        """Clears cell by setting value to None and color to default"""
+        self.value = None
+        self.set_color(DEFAULT_COLOR)
 
     @property
-    def _source_cell(self):
-        """
-        Gets PyUno cell from which values are drawn
-        :return:
-        """
-        return self.sheet.getCellByPosition(*self.position)
+    def row(self) -> Row:
+        return self.sheet.get_row(self.y)
 
     @property
-    def value(self):
-        """
-        Gets value of cell.
-        :return: str or float
-        """
-        # get cell value type after formula evaluation has been carried out
-        # this will return the cell value's type even if it is not a formula
-        t = self._source_cell.FormulaResultType.value
-        if t == 'TEXT':
-            return self._source_cell.getString()
-        elif t == 'VALUE':
-            return self._source_cell.getValue()
+    def column(self) -> Column:
+        return self.sheet.get_column(self.x)
+
+    @property
+    def has_whitespace(self) -> bool:
+        raise NotImplementedError
+
+    @property
+    def value_without_whitespace(self):
+        raise NotImplementedError
+
+    @property
+    def value(self) -> int or float or str or None:
+        raise NotImplementedError
 
     @value.setter
-    def value(self, new_value):
-        """
-        Sets source cell string and number value appropriately for
-        a new value.
-        This does not handle formulas at the present time.
-        :param new_value: int, float, or str
-        """
-        assert isinstance(new_value, (str, int, float))
-        if isinstance(new_value, str):
-            self.float = 0
-            self.string = new_value
-        else:
-            self.float = new_value
-            self.string = str(new_value)
+    def value(self, new_value: str or int or float or None) -> None:
+        raise NotImplementedError
 
     @property
     def string(self):
-        """
-        Returns string value directly from source cell
-        :return: str
-        """
-        return self._source_cell.getString()
+        raise NotImplementedError
 
     @string.setter
-    def string(self, new_string):
-        """
-        Sets string value of source cell directly
-        :param new_string: str
-        """
-        assert isinstance(new_string, str)
-        self._source_cell.setString(new_string)
+    def string(self, new_string: str) -> None:
+        raise NotImplementedError
 
     @property
     def float(self):
-        """
-        Returns float value directly from source cell 'value'
-        :return: float
-        """
-        return self._source_cell.getValue()
+        raise NotImplementedError
 
     @float.setter
-    def float(self, new_value):
-        """
-        Sets float value of source cell directly
-        :param new_value:
-        :return:
-        """
-        assert isinstance(new_value, (int, float))
-        new_value = float(new_value)
-        self._source_cell.setValue(new_value)
+    def float(self, new_float: int or float) -> None:
+        raise NotImplementedError
 
     @property
     def x(self):
-        """
-        Gets x position of cell
-        :return: int
-        """
-        return self.position[0]
+        raise NotImplementedError
 
     @property
     def y(self):
-        """
-        Gets y position of cell
-        :return: int
-        """
-        return self.position[1]
+        return NotImplementedError
 
-    def __str__(self):
-        return 'Cell[(%s), Value: %s' % (self.position, self.value)
+
+class Interface:
+    """Abstract class inherited from by XW and Uno interfaces."""
+
+    class Model:
+        pass
+
+    class Sheet:
+        pass
+
+    class Line:
+        pass
+
+    class Column:
+        pass
+
+    class Row:
+        pass
+
+    class Cell:
+        pass
+
+
+class Office:
+    """
+    Handles interface with workbook.
+
+    This may not need to be a class, but any independent functions appear
+    as their own macro, so this is instead its own class
+    """
+
+    class XW(Interface):
+        """
+        Handles XLWings interfacing with Office program
+        """
+
+        class Model(Model):
+            def __init__(self):
+                pass
+
+    class Uno(Interface):
+        """
+        Handles Uno interfacing with Office program
+        """
+
+        class Model(Model):
+            """
+            Handles usages of PyUno Model
+            """
+
+            def __init__(self) -> None:
+                # not an error; provided by macro caller
+                desktop = XSCRIPTCONTEXT.getDesktop()
+                py_uno_model = desktop.getCurrentComponent()
+                if not hasattr(py_uno_model, 'Sheets'):
+                    raise AttributeError(
+                        'Model does not have Sheets. '
+                        'This macro needs to be run from a calc workbook.'
+                    )
+                self.model = py_uno_model
+
+            def __getitem__(self, item: str or int) -> Sheet:
+                """
+                Gets identified sheet.
+                :param item: str or int
+                :return: Sheet
+                """
+                assert isinstance(item, (str, int))
+                # try to get appropriate sheet from uno model.
+                # If sheet index or name cannot be found, raise a more
+                # readable error message than the terribly unhelpful
+                # uno message.
+                if isinstance(item, int):
+                    try:
+                        return Office.Uno.Sheet(
+                            self.model.Sheets.getByIndex(item))
+                    except:  # can't seem to put the actual exception
+                        # class here
+                        raise IndexError('Could not retrieve sheet at index'
+                                         '%s' % repr(item))
+                else:
+                    try:
+                        return Office.Uno.Sheet(
+                            self.model.Sheets.getByName(item))
+                    except:
+                        raise KeyError('Could not retrieve sheet with name %s'
+                                       % repr(item))
+
+            def sheet_exists(self, *args: str) -> str:
+                """
+                Checks each string passed as arg to see if it exists as a
+                sheet name. If so, returns it, otherwise, moves to the next
+                :param args: strings
+                :return: str of first viable sheet name or None if no
+                viable name is found
+                """
+                assert all([isinstance(arg, str) for arg in args])
+                for sheet_name in args:
+                    try:
+                        self.model.Sheets.getByName(sheet_name)
+                    except:  # todo: find actual exception class
+                        pass
+                    else:
+                        return sheet_name
+
+            @property
+            def sheets(self):
+                """
+                Generator returning each sheet in Model / Book
+                :return: Sheet
+                """
+                i = 0
+                while True:  # loop until break
+                    try:
+                        yield Office.Uno.Sheet(self.model.Sheets.getByIndex(i))
+                    except:
+                        break
+                    else:
+                        i += 1
+
+        class Sheet(Sheet):
+            """
+            Handles usage of a workbook sheet
+            """
+
+            def __init__(
+                    self,
+                    uno_sheet,
+                    reference_row_index=0,
+                    reference_column_index=0
+            ) -> None:
+                self.uno_sheet = uno_sheet
+                self.reference_row_index = reference_row_index
+                self.reference_column_index = reference_column_index
+
+            def get_column(self, column_identifier: int or str) -> Column:
+                """
+                Gets column from name
+                :param column_identifier: str or int
+                identifying the column to retrieve
+                :return: Column
+                """
+                assert isinstance(column_identifier, (int, str)), \
+                    'getitem must be passed an int or str, got %s' \
+                    % column_identifier
+                if isinstance(column_identifier, int):
+                    column_index = column_identifier
+                else:
+                    column_index = self.get_column_index_from_name(
+                        column_identifier)
+                return self.get_column_by_index(column_index) if \
+                    column_index is not None else None
+
+            def get_row(self, row_identifier: str or int) -> Row:
+                """
+                Gets row from identifier
+                :param row_identifier:
+                :return:
+                """
+                assert isinstance(row_identifier, (int, str)), \
+                    'getitem must be passed an int or str, got %s' \
+                    % row_identifier
+                if isinstance(row_identifier, int):
+                    row_index = row_identifier
+                else:
+                    row_index = self.get_row_index_from_name(row_identifier)
+                return self.get_row_by_index(row_index) if \
+                    row_identifier is not None else None
+
+            def get_column_by_index(self, column_index: int) -> Column:
+                """
+                Gets column of passed index
+                :param column_index: int
+                :return: Column
+                """
+                if not isinstance(column_index, int):
+                    raise TypeError('Column index must be an int, got %s'
+                                    % column_index)
+                return Office.Uno.Column(
+                    sheet=self,
+                    column_index=column_index,
+                    reference_column_index=self.reference_column_index
+                )
+
+            def get_row_by_index(self, row_index: int or str) -> Row:
+                """
+                Gets row of passed index
+                :param row_index: int
+                :return: Row
+                """
+                if not isinstance(row_index, int):
+                    raise TypeError('row_index must be an int, got %s '
+                                    % row_index)
+                return Office.Uno.Row(
+                    sheet=self,
+                    row_index=row_index,
+                    reference_row_index=self.reference_row_index
+                )
+
+            @property
+            def columns(self):
+                """
+                yields columns in sheet
+                :return: Columns
+                """
+                for x, cell, in enumerate(self.reference_row):
+                    yield self.get_column(x)
+
+            @property
+            def rows(self):
+                """
+                yields rows in sheet
+                :return: Rows
+                """
+                for y, cell in enumerate(self.reference_column):
+                    yield self.get_column(y)
+
+        class Line(Line):
+            """
+            Contains methods common to both Columns and Rows
+            """
+            def __init__(
+                self,
+                sheet: Sheet,
+                index: int,
+                reference_index: int,
+            ) -> None:
+                if not isinstance(sheet, Sheet):
+                    raise TypeError(
+                        'Expected subclass of Sheet. Instead got %s'
+                        % repr(sheet))
+                if not isinstance(index, int):
+                    raise TypeError(
+                        'Expected line index to be an int. '
+                        'Instead got %s' % repr(index))
+                if not isinstance(reference_index, int):
+                    raise TypeError(
+                        'Expected reference name index to be an int, '
+                        'Instead got %s' % repr(reference_index))
+                self.sheet = sheet
+                self.index = index
+                self.reference_index = index
+
+            def __len__(self) -> int:
+                n = 0
+                for each in self:
+                    n += 1
+                return n
+
+            @property
+            def uno_sheet(self):
+                """
+                Gets uno sheet object
+                :return: uno sheet
+                """
+                return self.sheet.uno_sheet
+
+        class Column(Line, Column):
+            """
+            Handles usage of a column within a sheet
+            """
+            def __init__(
+                    self,
+                    sheet: Sheet,
+                    column_index: int,
+                    reference_column_index: int=0):
+                super().__init__(
+                    sheet=sheet,
+                    index=column_index,
+                    reference_index=reference_column_index
+                )
+
+            def __getitem__(self, cell_identifier) -> Cell:
+                """
+                Gets cell from passed identifier.
+                If identifier is string, presumes it is a cell's name.
+                If identifier is number, presumes it is a
+                cell's index.
+                To ensure the right method of fetching a cell is used,
+                use .get_by_name or .get_by_index
+                :param cell_identifier: str or int
+                :return: Cell
+                """
+                assert isinstance(cell_identifier, (int, str)), \
+                    'Expected cell_identifier to be int or str, got %s ' \
+                    % cell_identifier
+                if isinstance(cell_identifier, int):
+                    return self.get_cell_by_index(cell_identifier)
+                else:
+                    for x, cell in enumerate(self.reference_column):
+                        if cell.value == cell_identifier:
+                            return self[x]
+
+            def __iter__(self):
+                """
+                Returns iterable line of cells
+                :return: Iterable
+                """
+                return Office.Uno.CellLine(
+                    sheet=self.sheet,
+                    axis='y',
+                    index=self.index)
+
+            def get_cell_by_index(self, index: int) -> Cell:
+                """
+                Gets cell from passed index.
+                :param index: int
+                :return: Cell
+                """
+                if not isinstance(index, int):
+                    raise TypeError("Passed index must be an int, got %s"
+                                    % index)
+                return Office.Uno.Cell(
+                    self.sheet, (self.index, index))
+
+        class Row(Line, Row):
+            """
+            Handles usage of a row within a sheet
+            """
+
+            def __init__(
+                    self,
+                    sheet: Sheet,
+                    row_index: int,
+                    reference_row_index: int=0
+            ) -> None:
+                super().__init__(
+                    sheet=sheet,
+                    index=row_index,
+                    reference_index=reference_row_index,
+                )
+
+            def __getitem__(self, cell_identifier) -> Cell:
+                """
+                Gets cell from passed identifier.
+                If identifier is string, presumes it is a cell's name.
+                If identifier is number, presumes it is a
+                cell's index.
+                To ensure the right method of fetching a cell is used,
+                use .get_by_name or .get_by_index.
+                :param cell_identifier: str or int
+                :return: Cell
+                """
+                assert isinstance(cell_identifier, (str, int))
+                if isinstance(cell_identifier, int):
+                    return self.get_cell_by_index(cell_identifier)
+                else:
+                    for x, cell in enumerate(self.reference_row):
+                        if cell.value == cell_identifier:
+                            return self[x]
+
+            def __iter__(self):
+                return Office.Uno.CellLine(
+                    sheet=self.sheet,
+                    axis='x',
+                    index=self.index)
+
+            def get_cell_by_index(self, index: int) -> Cell:
+                """
+                Gets cell in Row from passed index
+                :param index: int
+                :return: Cell
+                """
+                if not isinstance(index, int):
+                    raise TypeError('Passed index should be int, got %s'
+                                    % index)
+                return Office.Uno.Cell(
+                    sheet=self.sheet,
+                    position=(index, self.index))
+
+        class CellLine:
+            """
+            Generator iterable that returns cells of a particular row or column
+            """
+            sheet = None
+            axis = None
+            index = None
+            i = 0
+            highest_inhabited_i = -1
+
+            # max_i = 0
+
+            def __init__(self, sheet, axis, index):
+                assert axis in ('x', 'y')
+                self.sheet = sheet
+                self.axis = axis
+                self.index = index
+
+            def __iter__(self):
+                return self
+
+            def __next__(self) -> Cell:
+                x, y = (self.index, self.i) if self.axis == 'y' else \
+                    (self.i, self.index)
+                cell = Office.Uno.Cell(self.sheet, (x, y))
+                if cell.string == '' and self.i > self.highest_inhabited_i:
+                    for x in range(1, MAX_CELL_GAP):
+                        test_x, test_y = (self.index, self.i + x) if \
+                            self.axis == 'y' else (self.i + x, self.index)
+                        test_cell = Office.Uno.Cell(
+                            self.sheet,
+                            position=(test_x, test_y))
+                        if test_cell.string != '':
+                            self.highest_inhabited_i = self.i + x
+                            break
+                    else:
+                        raise StopIteration()
+                self.i += 1
+                return cell
+
+        class Cell(Cell):
+            """
+            Handles usage of an individual cell
+            """
+
+            def __init__(self, sheet, position):
+                assert all([isinstance(item, int) for item in position])
+                assert len(position) == 2
+                self.position = tuple(position)
+                self.sheet = sheet
+
+            def set_color(self, color):
+                """
+                Sets cell background color
+                :param color: int, list or tuple
+                """
+                assert isinstance(color, (int, tuple, list))
+                if isinstance(color, int):
+                    color_int = color
+                else:
+                    color_int = color[0] * 256 ** 2 + color[1] * 256 + color[2]
+                self._source_cell.CellBackColor = color_int
+
+            def remove_whitespace(self) -> None:
+                """Removes whitespace from cell"""
+                self.value = self.value_without_whitespace
+
+            @property
+            def _uno_sheet(self):
+                """
+                Gets uno Sheet obj.
+                :return: uno Sheet obj
+                """
+                return self.sheet.uno_sheet
+
+            @property
+            def value_without_whitespace(self) -> str:
+                """
+                Gets value of cell without whitespace.
+                If cell is not a string, returns value unchanged.
+                :return:
+                """
+                if isinstance(self.value, str):
+                    return self.value.strip()
+                else:
+                    return self.value
+
+            @property
+            def has_whitespace(self) -> bool:
+                """
+                Gets bool of whether cell string contains whitespace.
+                If cell contains a number, returns False.
+                :return: bool
+                """
+                return self.value_without_whitespace != self.value
+
+            @property
+            def _source_cell(self):
+                """
+                Gets PyUno cell from which values are drawn
+                :return:
+                """
+                return self._uno_sheet.getCellByPosition(*self.position)
+
+            @property
+            def value(self) -> int or float or str:
+                """
+                Gets value of cell.
+                :return: str or float
+                """
+                # get cell value type after formula evaluation has been
+                # carried out. This will return the cell value's type
+                # even if it is not a formula
+                t = self._source_cell.FormulaResultType.value
+                if t == 'TEXT':
+                    return self._source_cell.getString()
+                elif t == 'VALUE':
+                    return self._source_cell.getValue()
+
+            @value.setter
+            def value(self, new_value: int or float or str) -> None:
+                """
+                Sets source cell string and number value appropriately for
+                a new value.
+                This does not handle formulas at the present time.
+                :param new_value: int, float, or str
+                """
+                assert isinstance(new_value, (str, int, float))
+                if isinstance(new_value, str):
+                    self.string = new_value
+                else:
+                    self.float = new_value
+
+            @property
+            def string(self) -> str:
+                """
+                Returns string value directly from source cell
+                :return: str
+                """
+                return self._source_cell.getString()
+
+            @string.setter
+            def string(self, new_string: str) -> None:
+                """
+                Sets string value of source cell directly
+                :param new_string: str
+                """
+                assert isinstance(new_string, str)
+                self._source_cell.setString(new_string)
+
+            @property
+            def float(self) -> float:
+                """
+                Returns float value directly from source cell 'value'
+                :return: float
+                """
+                return self._source_cell.getValue()
+
+            @float.setter
+            def float(self, new_float: int or float) -> None:
+                """
+                Sets float value of source cell directly
+                :param new_float: int or float
+                :return: None
+                """
+                assert isinstance(new_float, (int, float))
+                new_value = float(new_float)
+                self._source_cell.setValue(new_value)
+
+            @property
+            def x(self) -> int:
+                """
+                Gets x position of cell
+                :return: int
+                """
+                return self.position[0]
+
+            @property
+            def y(self) -> int:
+                """
+                Gets y position of cell
+                :return: int
+                """
+                return self.position[1]
+
+            def __str__(self) -> str:
+                return 'Cell[(%s), Value: %s' % (self.position, self.value)
+
+    @staticmethod
+    def get_interface() -> str or None:
+        """
+        Test for what interface is using this macro, and return the string
+        of the appropriate class that should be used.
+        :return: str or None if no interface can be determined
+        """
+        # test for Python Uno
+        try:
+            XSCRIPTCONTEXT  # if this variable exists, PyUno is being used.
+        except AttributeError:
+            pass
+        else:
+            return 'Uno'
+
+            # test for XLWings
+            # todo
+
+            # otherwise, return None / False
+
+    @staticmethod
+    def get_interface_class() -> Interface:
+        """Gets interface class, ie, Uno or XW"""
+        interface = Office.get_interface()  # gets str name of interface class
+        if not interface:
+            raise ValueError('Should be run as macro using XLWings or PyUno.'
+                             'Neither could be detected.')
+        return getattr(Office, interface)
+
+    @staticmethod
+    def get_model() -> Model:
+        return Office.get_model_class()()  # get model class and instantiate
+
+    @staticmethod
+    def get_model_class() -> type:
+        """Gets appropriate Model class"""
+        return Office.get_interface_class().Model
+
+    @staticmethod
+    def get_sheet_class() -> type:
+        """Gets appropriate Sheet class"""
+        return Office.get_interface_class().Sheet
+
+    @staticmethod
+    def get_column_class() -> type:
+        """Gets appropriate Column class"""
+        return Office.get_interface_class().Column
+
+    @staticmethod
+    def get_row_class() -> type:
+        """Gets appropriate Row class"""
+        return Office.get_interface_class().Row
+
+    @staticmethod
+    def get_cell_class() -> type:
+        """Gets appropriate Cell class"""
+        return Office.get_interface_class().Cell
 
 ###############################################################################
 # Column Data
@@ -528,51 +1238,111 @@ class Translation:
     Handles movement of data from source to target sheets and applies
     modifications
     """
-    def __init__(self,
-                 source_sheet,
-                 target_sheet,
-                 column_translations=None,
-                 row_deletions=None,
-                 source_start_row=1,
-                 target_start_row=1,
-                 confirm_dialog_func=None):
-        assert isinstance(source_sheet, Sheet)
-        assert isinstance(target_sheet, Sheet)
+    _whitespace_action = WHITESPACE_HIGHLIGHT_STR
+    _duplicate_action = DUPLICATE_HIGHLIGHT_STR
+
+    def __init__(
+            self,
+            dialog_parent,
+            source_sheet: Sheet,
+            target_sheet: Sheet,
+            column_translations=None,
+            row_deletions=None,
+            source_start_row=1,
+            target_start_row=1,
+            whitespace_action=WHITESPACE_HIGHLIGHT_STR,
+            duplicate_action=DUPLICATE_HIGHLIGHT_STR,
+    ):
+
+        if not isinstance(source_sheet, Sheet):
+            raise TypeError('Source sheet should be a Sheet, got: %s'
+                            % repr(source_sheet))
+        if not isinstance(target_sheet, Sheet):
+            raise TypeError('Target sheet should be a Sheet, got: %s'
+                            % repr(source_sheet))
+        self._dialog_parent = dialog_parent
         self._source_sheet = source_sheet
         self._target_sheet = target_sheet
-        self._column_translations = column_translations if \
-            column_translations else set()
         self._row_deletions = row_deletions if row_deletions else set()
         self._src_cell_transforms = {}
         self._tgt_cell_transforms = {}
         self._source_start_row = source_start_row
         self._target_start_row = target_start_row
-        self.confirm_dialog_func = confirm_dialog_func
+        self._whitespace_action = whitespace_action
+        self._duplicate_action = duplicate_action
+        # create column translations from passed list of dicts
+        # in settings
+        self._column_translations = []
+        self.add_column_translation(*column_translations)
 
-    def add_column_translation(self, source, target):
+    def confirm_overwrite(self):
+        reply = QtW.QMessageBox.question(
+            self._dialog_parent,
+            'Overwrite Cells?',
+            'Cells on the target sheet will be overwritten.\n'
+            'Proceed?',
+            QtW.QMessageBox.Yes | QtW.QMessageBox.Cancel,
+            QtW.QMessageBox.Cancel
+        )
+        return reply == QtW.QMessageBox.Yes
+
+    def add_column_translation(self, *args, **kwargs) -> None:
         """
-        Adds translation to queue.
-        When applied, copies cell data from source column to
-        target column.
-        :param source: int or str
-        :param target: int or str
+        Adds translation to queue which when applied, copies cell data
+        from source column to target column.
+        source and target columns may be identified either by passing
+        the name of that column, as determined by the sheet's reference
+        row, or by their index.
+        An index or name must be passed for both source and target
+        columns, however passing both an index and a name will result
+        in a ValueError being raised.
+        If passed kwargs, will pass on those to a
+        created ColumnTranslation obj.
+        If passed a dictionary or dictionaries, will add one
+        ColumnTranslation for each of those dictionaries, and pass it
+        the contained kwargs.
+            source_column_i: int
+            source_column_name: int, float, or str
+            target_column_i: int
+            target_column_name: int, float, or str
+            kwargs: other kwargs will be passed to created
+        ColumnTranslation.
+        :param args: ColumnTranslation kwargs dictionaries
+        :param kwargs: kwargs for a single ColumnTranslation.
         """
-        assert isinstance(source, (int, str))
-        assert isinstance(target, (int, str))
-        # get source x integer
-        if isinstance(source, int):
-            source_x = source
-        else:
-            source_x = self._source_sheet.get_column(source)
-        # get target x integer
-        if isinstance(target, int):
-            target_x = target
-        else:
-            target_x = self._target_sheet.get_column(target)
-        # append translation
-        self._column_translations.add(ColumnTranslation(
-            source_column=source_x, target_column=target_x
-        ))
+        # check that passed args are all dictionaries
+        assert all([isinstance(item, dict) for item in args]), \
+            'passed args must be dictionaries of kwargs for ' \
+            'ColumnTranslation. Instead got %s' % args
+        # for each passed kwargs dictionary,
+        # including that passed to this method;
+        for kwargs_dict in args + (kwargs,) if kwargs else args:
+            # ensure correct kwargs were passed.
+            # Exactly one source column identifier should have been
+            # passed for each of src col and tgt col
+            source_column_i = kwargs_dict.get(SOURCE_COLUMN_INDEX_KEY, None)
+            source_column_name = kwargs_dict.get(SOURCE_COLUMN_NAME_KEY, None)
+            target_column_i = kwargs_dict.get(TARGET_COLUMN_INDEX_KEY, None)
+            target_column_name = kwargs_dict.get(TARGET_COLUMN_NAME_KEY, None)
+            if bool(source_column_i) == bool(source_column_name):
+                raise ValueError(
+                    'One of source_column_i or source_column_name must '
+                    'be passed, but not both. Got %s and %s respectively'
+                    % (source_column_i, source_column_name)
+                )
+            if bool(target_column_i) == bool(target_column_name):
+                raise ValueError(
+                    'One of target_column_i or target_column_name must '
+                    'be passed, but not both. Got %s and %s respectively'
+                    % (target_column_i, target_column_name)
+                )
+            # add ColumnTranslation
+            self._column_translations.append(
+                ColumnTranslation(
+                    parent_translation=self,
+                    **kwargs_dict
+                )
+            )
 
     def add_row_deletion(self, row):
         """
@@ -623,39 +1393,14 @@ class Translation:
         applies each translation
         :return: bool of whether commit was applied or not
         """
+        # add cell transformations to be applied after move
+        self._add_cell_transformations()
         # clear data
         self.clear_target()
-
         # move data
+        # for each column translation
         for column_translation in self._column_translations:
-            row_i = self._target_start_row
-            for source_cell in self._source_sheet.get_column(
-                column_translation.source_column):
-                # don't include source cells before start row
-                # and whose y position is in deletion set.
-                if source_cell.y in self._row_deletions or \
-                        source_cell.y < self._source_start_row:
-                    continue
-                assert isinstance(source_cell, Cell)
-                target_x = column_translation.target_column
-                target_y = row_i + self.target_start_row - \
-                    self.source_start_row
-                # print('target start row: %s' % self.target_start_row)
-                assert isinstance(target_x, int)
-                assert isinstance(target_y, int)
-                target_cell = self._target_sheet.get_cell((target_x,
-                                                           target_y))
-                assert isinstance(target_cell, Cell), target_cell
-                target_cell.value = source_cell.value
-                # apply cell transforms
-                if source_cell.position in self._src_cell_transforms:
-                    [transform(target_cell) for transform in
-                     self._src_cell_transforms[source_cell.position]]
-                if target_cell.position in self._tgt_cell_transforms:
-                    [transform(target_cell) for transform in
-                     self._tgt_cell_transforms[target_cell.position]]
-                row_i += 1
-
+            column_translation.commit()
         return True
 
     def clear_target(self):
@@ -671,14 +1416,248 @@ class Translation:
                     continue
                 if not user_ok and cell.value != '':
                     # if user has not yet ok'd deletion of cells:
-                    if self.confirm_dialog_func:
+                    if self.confirm_overwrite:
                         print('confirm dlg')
-                        proceed = self.confirm_dialog_func()
+                        proceed = self.confirm_overwrite()
                         if not proceed:
                             return False
                     user_ok = True
                 cell.value = ''
                 cell.set_color(DEFAULT_COLOR)
+
+    def _add_cell_transformations(self):
+        """
+        Goes through columns and looks for whitespace / duplicates.
+        Applies cell transformations (removal / highlight) as needed.
+        """
+        for column_translation in self._column_translations:
+            source_column = self._source_sheet.get_column(
+                column_translation.source_column_i
+            )
+            # duplicates
+            self._add_whitespace_cell_transformations(source_column)
+            # whitespace
+            self._add_duplicate_cell_transformations(source_column)
+
+    def _add_whitespace_cell_transformations(self, source_column):
+        """
+        checks for whitespace in cells of source_column and takes
+        set action (remove, highlight, ignore).
+        Written to be called by _add_cell_transformations method.
+        :param source_column: Column
+        """
+        # find whitespace cells
+        whitespace_cells = [
+            cell for cell in source_column if
+            cell.value_without_whitespace != cell.value
+            ]
+        # add cell transformations
+        [self._add_whitespace_cell_transformation(cell)
+         for cell in whitespace_cells]
+        # give user message about whitespace action
+        if whitespace_cells:
+            # get positions of whitespace
+            whitespace_positions = [
+                cell.position for cell in whitespace_cells
+                ]
+            self._whitespace_feedback(whitespace_positions)
+
+    def _whitespace_feedback(self, whitespace_positions):
+        """
+        Reports to user on whitespace removals.
+        Written to be called by _add_whitespace_cell_transforms method
+        after whitespace transforms have been added.
+        :param whitespace_positions:
+        """
+        if not whitespace_positions:
+            return
+        secondary_string = ''
+        if self.whitespace_action == WHITESPACE_REMOVE_STR:
+            secondary_string = (
+                'Cell values were edited to remove '
+                'unneeded '
+                'tab, linefeed, return, formfeed, '
+                'and/or vertical tab characters.')
+        elif self.whitespace_action == WHITESPACE_HIGHLIGHT_STR:
+            secondary_string = (
+                '%s Cell values were highlighted in '
+                'checked '
+                'columns' % len(whitespace_positions))
+        InfoMessage(
+            parent=self,
+            title='Whitespace Found',
+            main='Whitespace found in %s cells' % len(
+                whitespace_positions),
+            secondary=secondary_string,
+            detail=self._position_report(*whitespace_positions)
+        )
+
+    def _add_whitespace_cell_transformation(self, cell):
+        """
+        Adds cell transformation for a cell containing whitespace.
+        Action taken depends on whitespace action setting.
+        Cell and row may be highlighted, whitespace removed, or the
+        cell ignored.
+        :param cell: cell containing whitespace.
+        """
+        assert cell.value_without_whitespace != cell.value
+        if self.whitespace_action == WHITESPACE_HIGHLIGHT_STR:
+            # color cell row when it is moved.
+            self._color_row(
+                cell_position=cell.position,
+                cell_color=WHITESPACE_CELL_COLOR,
+                row_color=WHITESPACE_ROW_COLOR
+            )
+        elif self.whitespace_action == WHITESPACE_REMOVE_STR:
+            # run remove whitespace function on cell when it is moved
+            self.add_cell_transform(
+                cell.position,
+                'src',
+                lambda c: c.remove_whitespace()
+            )
+
+    def _add_duplicate_cell_transformations(self, source_column):
+        [self._add_duplicate_cell_transformation(cell)
+         for cell in source_column.duplicates]
+        if source_column.duplicates:
+            duplicate_positions = [
+                cell.position for cell in source_column.duplicates
+                ]
+            self._duplicates_feedback(duplicate_positions)
+
+    def _add_duplicate_cell_transformation(self, cell):
+        """
+        Adds cell transformation for a cell with a duplicate value.
+        Action depends on duplicate cell action setting;
+        Row may be removed, highlighted, or ignored.
+        :param cell: cell containing duplicate value.
+        """
+        if self.duplicate_action == DUPLICATE_HIGHLIGHT_STR:
+            self._color_row(
+                cell_position=cell.position,
+                cell_color=DUPLICATE_CELL_COLOR,
+                row_color=DUPLICATE_ROW_COLOR
+            )
+        elif self.duplicate_action == DUPLICATE_REMOVE_ROW_STR:
+            self.add_row_deletion(cell.y)
+
+    def _duplicates_feedback(
+            self,
+            duplicate_positions) -> None:
+        """
+        Provides feedback to user about duplicates and actions taken
+        regarding said duplicates.
+        :param duplicate_positions: iterable of duplicate_positions
+        """
+        if not duplicate_positions or \
+                self.duplicate_action == DUPLICATE_IGNORE_STR:
+            return
+        secondary_string = ''
+        if self.duplicate_action == DUPLICATE_HIGHLIGHT_STR:
+            secondary_string = '%s Cell values were highlighted in ' \
+                               'checked columns' % duplicate_positions
+        elif self.duplicate_action == DUPLICATE_REMOVE_ROW_STR:
+            n_rows_w_duplicates = len(set(
+                [pos[1] for pos in duplicate_positions]))
+            secondary_string = '%s Cell rows containing duplicate ' \
+                               'values were removed' % n_rows_w_duplicates,
+        InfoMessage(
+            parent=self,
+            title='Duplicate Values',
+            main='%s Duplicate cell values found' % duplicate_positions,
+            secondary=secondary_string,
+            detail=self._position_report(*duplicate_positions)
+        )
+
+    def _color_row(self, cell_position, cell_color, row_color):
+        """
+        Colors a cell and row background.
+        :param cell_position: position of cell.
+        :param cell_color: color for cell to be colored.
+        :param row_color: color for all other cells in row to be colored.
+        """
+        [self.add_cell_transform(
+            (x, cell_position[1]),
+            'src',
+            lambda c: c.set_color(row_color)
+        ) for x in range(len(
+            self._source_sheet.get_row(cell_position[1])))]
+        # mark cell with duplicate red1
+        self.clear_cell_transform(
+            cell_position, 'src')
+        self.add_cell_transform(
+            cell_position, 'src',
+            lambda c: c.set_color(cell_color))
+
+    def _position_report(self, *src_positions):
+        """
+        Converts iterable of positions into a more user-friendly
+        report.
+        output should consist of a list of row numbers, each with
+        the names of the column containing passed position
+        :param positions: tuples (int x, int y)
+        :return: str
+        """
+
+        def src_to_tgt_pos(src_pos_):
+            """
+            Converts src_pos to tgt_pos
+            :param src_pos_: int x, int y
+            :return: int x, int y
+            """
+
+            def find_col_translation(x_):
+                for col_transform in \
+                        self._column_translations:
+                    assert isinstance(col_transform,
+                                      ColumnTranslation)
+                    if col_transform.source_column_i == x_:
+                        return col_transform
+
+            # find column the x index will be moved to
+            # by looking through column transforms
+            x_translation = find_col_translation(
+                src_pos_[0])
+            assert isinstance(x_translation, ColumnTranslation)
+            tgt_x = x_translation.target_column_i
+            tgt_y = src_pos_[1] - self.source_start_row + \
+                self.target_start_row
+            return tgt_x, tgt_y
+
+        # first convert src positions to tgt positions
+        tgt_positions = [src_to_tgt_pos(src_pos_)
+                         for src_pos_ in src_positions]
+
+        rows = []  # list of row indices in report.
+        # This keeps the columns in order.
+        row_columns = {}  # dictionary of string lists
+        for x, y in tgt_positions:
+            column_name = self._target_sheet.get_column(x).name
+            if y not in rows:
+                row_columns[y] = list()
+                rows.append(y)
+            row_columns[y].append(column_name)
+        # now make the report
+        row_strings = [
+            'Row %s; %s' % (y, ', '.join(row_columns[y]))
+            for y in rows]
+        return '\n'.join(row_strings)
+
+    @property
+    def source_sheet(self):
+        """
+        Gets source sheet
+        :return: Sheet
+        """
+        return self._source_sheet
+
+    @property
+    def target_sheet(self):
+        """
+        Gets target sheet
+        :return: Sheet
+        """
+        return self._target_sheet
 
     @property
     def source_start_row(self):
@@ -723,50 +1702,361 @@ class Translation:
         """
         return self._column_translations.copy()
 
+    @property
+    def row_deletions(self) -> set:
+        """
+        Gets set of rows to be deleted in translation
+        :return: set
+        """
+        return self._row_deletions.copy()
+
+    @property
+    def whitespace_action(self):
+        """
+        Gets name of action that will be taken for cells containing
+        whitespace
+        :return: str
+        """
+        return self._whitespace_action
+
+    @whitespace_action.setter
+    def whitespace_action(self, action):
+        """
+        Sets action to be taken when cell contains whitespace
+        :param action: str
+        """
+        assert action in (
+            WHITESPACE_REMOVE_STR,
+            WHITESPACE_HIGHLIGHT_STR,
+            WHITESPACE_IGNORE_STR
+        )
+        self._whitespace_action = action
+
+    @property
+    def duplicate_action(self):
+        """
+        Gets name of action that will be taken for rows containing
+        duplicates
+        :return: str
+        """
+        return self._duplicate_action
+
+    @duplicate_action.setter
+    def duplicate_action(self, action):
+        """
+        Sets name of action that will be taken for rows
+        containing duplicates
+        :param action: str
+        """
+        assert action in (
+            DUPLICATE_REMOVE_ROW_STR,
+            DUPLICATE_HIGHLIGHT_STR,
+            DUPLICATE_IGNORE_STR
+        )
+        self._duplicate_action = action
+
+    @property
+    def src_cell_transforms(self):
+        """
+        Gets cell transforms that are to be applied based on src
+        sheet position.
+        :return: dict{src_sheet_position: list[function]}
+        """
+        return self._src_cell_transforms.copy()
+
+    @property
+    def tgt_cell_transforms(self):
+        """
+        Gets cell transforms that are to be applied based on tgt
+        sheet position
+        :return: dict{tgt_sheet_position: list[function]}
+        """
+        return self._tgt_cell_transforms.copy()
+
 
 class ColumnTranslation:
     """
     Handles movement and modification of a column
+    Applies translation of individual column
     """
-    def __init__(self, source_column, target_column):
-        assert isinstance(source_column, int)
-        assert isinstance(target_column, int)
-        self._target_column = target_column
-        self._source_column = source_column
-        
-    @property
-    def target_column(self):
-        """
-        Gets target column
-        :return: int
-        """
-        return self._target_column
-    
-    @target_column.setter
-    def target_column(self, new_column):
-        """
-        Sets target column
-        :param new_column: int
-        """
-        assert isinstance(new_column, int)
-        self._target_column = new_column
-    
-    @property
-    def source_column(self):
-        """
-        Gets source column
-        :return: int
-        """
-        return self._source_column
 
-    @source_column.setter
-    def source_column(self, new_column):
+    def __init__(
+            self,
+            parent_translation: Translation,
+            source_column_i=None,
+            target_column_i=None,
+            source_column_name=None,
+            target_column_name=None,
+            check_for_whitespace: bool=True,
+            check_for_duplicates: bool=False) -> None:
+        if (
+            bool(source_column_i is None) ==
+            bool(source_column_name is None),
+        ) is True:  # no idea why, but without 'is True' this will always
+            # raise the ValueError
+            raise ValueError(
+                'Source column index or name must be passed, but not both. '
+                'Got args source_column_i: %s (%s) and source_column_name: %s'
+                ' (%s) respectively'
+                % (source_column_i, source_column_i.__class__.__name__,
+                   source_column_name, source_column_name.__class__.__name__))
+        if (
+            bool(target_column_i is None) ==
+            bool(target_column_name is None),
+        ) is True:  # no idea why, but without 'is True' this will always
+            # raise the ValueError
+            raise ValueError(
+                'Target column index or name must be passed, but not both. '
+                'Got args target_column_i: %s (%s) and target_column_name: %s'
+                '(%s)'
+                % (target_column_i, target_column_i.__class__.__name__,
+                   target_column_name, target_column_name.__class__.__name__)
+            )
+        self._parent_translation = parent_translation
+        self._target_column_i = target_column_i
+        self._source_column_i = source_column_i
+        self._target_column_name = target_column_name
+        self._source_column_name = source_column_name
+        self._duplicates_check = check_for_duplicates
+        self._whitespace_check = check_for_whitespace
+
+    def commit(self) -> None:
+        """
+        Applies column translation.
+        Moves each cell in source column to target.
+        Skips rows that are listed in Translation.row_deletions
+        Applies cell transformations
+        :return: None
+        """
+        i = self._parent_translation.target_start_row
+        # for each cell in the source sheet column
+        for source_cell in self.source_column:
+            # don't include source cells before start row
+            # and those whose y position is in deletion set.
+            if source_cell.y in self._parent_translation.row_deletions or \
+                    source_cell.y < self._parent_translation.source_start_row:
+                continue
+            assert isinstance(source_cell, Cell)
+            tgt_x = self.target_column.index
+            tgt_y = i + self._parent_translation.target_start_row - \
+                self._parent_translation.source_start_row
+            assert isinstance(tgt_x, int)
+            assert isinstance(tgt_y, int)
+            target_cell = self.target_sheet.get_cell((tgt_x, tgt_y))
+            assert isinstance(target_cell, Cell)
+            target_cell.value = source_cell.value
+            # apply cell transforms
+            src_cell_transforms = self._parent_translation.src_cell_transforms
+            tgt_cell_transforms = self._parent_translation.tgt_cell_transforms
+            try:  # try to apply transforms pinned to the src cell position
+                [transform(target_cell) for transform in
+                 src_cell_transforms[source_cell.position]]
+            except KeyError:
+                pass  # no transforms for that src cell position
+            try:  # try to apply transforms pinned to the tgt cell position
+                [transform(target_cell) for transform in
+                 tgt_cell_transforms[target_cell.position]]
+            except KeyError:
+                pass  # no transforms for that tgt cell position
+            i += 1
+
+    # source sheet getters / setters
+
+    @property
+    def source_sheet(self) -> Sheet:
+        """
+        Gets source sheet, from which cells are retrieved
+        :return: Sheet
+        """
+        return self._parent_translation.source_sheet
+
+    @property
+    def source_column_i(self) -> int:
+        """
+        Gets source column identifier
+        :return: int
+        """
+        if self._source_column_i is not None:
+            return self._source_column_i
+        else:
+            return self.source_column.index
+
+    @source_column_i.setter
+    def source_column_i(self, new_column: int):
         """
         Sets source column
         :param new_column: int
         """
         assert isinstance(new_column, int)
-        self._source_column = new_column
+        self._source_column_i = new_column
+        self._source_column_name = None
+
+    @property
+    def source_column_name(self) -> int or str or float or None:
+        """
+        Gets name by which the source column is identified.
+        If the source column is identified by index, will return None
+        :return: int, float, str, or None
+        """
+        if self._source_column_name is not None:
+            return self._source_column_name
+        else:
+            return self.source_column.name
+
+    @source_column_name.setter
+    def source_column_name(self, new_column_name) -> None:
+        """
+        Sets name by which source column will be identified
+        :param new_column_name: int, float or str
+        :return: None
+        """
+        assert isinstance(new_column_name, (int, float, str))
+        if new_column_name not in self.source_sheet.columns.names:
+            raise ValueError('Passed column name %s not found in source sheet'
+                             % new_column_name)
+        self._source_column_name = new_column_name
+        self._source_column_i = None
+
+    @property
+    def source_column(self) -> Column:
+        """
+        Gets source column
+        :return: Office.Column
+        """
+        if self._source_column_i is not None:
+            identifier = self._source_column_i
+        else:
+            identifier = self._source_column_name
+        return self.source_sheet.get_column(identifier)
+
+    # target sheet getters/setters
+
+    @property
+    def target_sheet(self):
+        """
+        Gets target sheet, to which cells are moved
+        :return: Sheet
+        """
+        return self._parent_translation.target_sheet
+
+    @property
+    def target_column_i(self) -> int or None:
+        """
+        Gets target column index, if it is identified by index,
+        or else None.
+        :return: int or None
+        """
+        if self._target_column_i is not None:
+            return self._target_column_i
+        else:
+            return self.target_column.index
+
+    @target_column_i.setter
+    def target_column_i(self, new_column):
+        """
+        Sets target column by passing an index by which to identify it.
+        :param new_column: int or str
+        """
+        assert isinstance(new_column, int)
+        self._target_column_i = new_column
+        self._target_column_name = None
+
+    @property
+    def target_column_name(self):
+        """
+        Gets name by which target column is identified, or else None
+        if Column is identified by index.
+        :return: int, float, str, or None
+        """
+        if self._target_column_name is not None:
+            return self._target_column_name
+        else:
+            return self.target_column.name
+
+    @target_column_name.setter
+    def target_column_name(self, new_name) -> None:
+        """
+        Sets name by which target will be identified
+        :param new_name: int, float, or str
+        :return: None
+        """
+        assert isinstance(new_name, (int, float, str))
+        if new_name not in self.target_sheet.columns.names:
+            raise ValueError('Column name %s not found in target sheet'
+                             % new_name)
+        self._target_column_name = new_name
+        self._target_column_i = None
+
+    @property
+    def target_column(self) -> Column:
+        """
+        Gets target column
+        :return: Office.Column
+        """
+        identifier = self._target_column_i if \
+            self._target_column_i is not None else \
+            self._target_column_name
+        return self.target_sheet.get_column(identifier)
+
+    # column translation options
+
+    @property
+    def check_for_duplicates(self) -> bool:
+        """
+        Returns bool of whether column should be checked for duplicates
+        :return: bool
+        """
+        return self._duplicates_check
+
+    @check_for_duplicates.setter
+    def check_for_duplicates(self, new_bool: bool):
+        """
+        Sets bool of whether column should be checked for duplicates
+        :param new_bool: bool
+        """
+        self._duplicates_check = new_bool
+
+    @property
+    def check_for_whitespace(self) -> bool:
+        """
+        Returns bool of whether column should be checked for whitespace
+        :return: bool
+        """
+        return self._whitespace_check
+
+    @check_for_whitespace.setter
+    def check_for_whitespace(self, new_bool: bool):
+        """
+        Gets bool for whether column is checked for whitespace
+        :param new_bool: bool
+        """
+        self._whitespace_check = new_bool
+
+    def get_whitespace_source_cells(self):
+        """
+        Yields cells in source column which contain whitespace
+        :return: iterator of cells
+        """
+        assert self._parent_translation is not None, \
+            "Parent translation must be set"
+        for cell in self.source_column:
+            if cell.has_whitespace:
+                yield cell
+
+    def get_duplicate_source_cells(self):
+        """
+        Yields cells in source column with values that are duplicates of
+        previously occuring values
+        :return: iterator of cells
+        """
+        assert self._parent_translation is not None, \
+            "Parent translation must be set"
+        values = set()
+        for cell in self.source_column:
+            value = cell.value_without_whitespace
+            if value in values:
+                yield cell
+            values.add(value)
 
 
 class CellTransform:
@@ -785,28 +2075,26 @@ class CellTransform:
 ###############################################################################
 # GUI elements
 
-class TranslationDialog(QtW.QWidget):
+class TranslationDialog(QtW.QDialog):
     """
     Table widget containing columns and options to manipulate them
     """
-    def __init__(self,
-                 source_sheet,
-                 target_sheet,
-                 target_start,
-                 source_start,
-                 prior_widget=None):
+
+    def __init__(self, settings):
         print('Translation Dlg began')
         super().__init__()
-        assert isinstance(source_sheet, (Sheet, str, int)), source_sheet
-        assert isinstance(target_sheet, (Sheet, str, int)), target_sheet
+        source_sheet = settings[SOURCE_SHEET_KEY]
+        target_sheet = settings[TARGET_SHEET_KEY]
+        source_start = settings[SOURCE_START_KEY]
+        target_start = settings[TARGET_START_KEY]
+        assert isinstance(source_sheet, (Office.get_sheet_class(), str, int))
+        assert isinstance(target_sheet, (Office.get_sheet_class(), str, int))
         assert isinstance(source_start, (int, str)), source_start
         assert isinstance(target_start, (int, str)), target_start
-        # widget to return to if back is clicked
-        self.prior_widget = prior_widget
         # get Sheet obj from name or index if needed
-        if not isinstance(source_sheet, Sheet):
+        if not isinstance(source_sheet, Office.get_sheet_class()):
             source_sheet = model[source_sheet]
-        if not isinstance(target_sheet, Sheet):
+        if not isinstance(target_sheet, Office.get_sheet_class()):
             target_sheet = model[target_sheet]
         # get integer from string indices if needed.
         # checking to ensure strings are convertible should have already
@@ -819,23 +2107,17 @@ class TranslationDialog(QtW.QWidget):
         self.target_sheet = target_sheet  # sheet to send data to
         self.source_start_row = source_start
         self.target_start_row = target_start
+        self._final_settings = None
         self.setWindowTitle(APP_WINDOW_TITLE)
         self.show()
 
         def ok():
             """Function to confirm selections and create Translation"""
-            self.table.store_settings()
-            self.setWindowTitle('')  # free up window title
-            final_settings = self.settings
-            final_settings['prior_widget'] = self
-            FinalSettings(**final_settings)
-            self.hide()
+            self.accept()
 
         def back():
             """Function to resume prior dialog and close self"""
-            self.setWindowTitle('')  # free up title
-            self.prior_widget.resume()
-            self.close()
+            self.reject()
 
         self.table = self.TranslationTable(
             self._get_source_columns(),
@@ -850,18 +2132,15 @@ class TranslationDialog(QtW.QWidget):
         main_layout.addItem(confirm_bar)
         self.setLayout(main_layout)
 
-    def resume(self):
-        """Resumes current widget's use"""
-        self.setWindowTitle(APP_WINDOW_TITLE)
-        self.show()
-
     def _get_source_columns(self):
         """
         Returns list of source column names
+        If source column header is empty, that column is not included.
         :return: list
         """
         assert isinstance(self.source_sheet, Sheet)
-        return [cell.value for cell in self.source_sheet.get_row(0)]
+        return [cell.string for cell in self.source_sheet.get_row(0)
+                if cell.string]  # include only if header is not empty
 
     def _get_target_columns(self):
         """
@@ -869,7 +2148,8 @@ class TranslationDialog(QtW.QWidget):
         :return: list
         """
         assert isinstance(self.target_sheet, Sheet)
-        return [cell.value for cell in self.target_sheet.get_row(0)]
+        return [cell.value for cell in self.target_sheet.get_row(0)
+                if cell.string]  # include only if header is not empty
 
     class TranslationTable(QtW.QTableWidget):
         def __init__(self, source_columns, target_columns):
@@ -889,7 +2169,7 @@ class TranslationDialog(QtW.QWidget):
 
         class SourceColumnDropDown(QtW.QComboBox):
             name = 'Source Column'
-            dict_name = 'src column'
+            dict_name = SOURCE_COLUMN_NAME_KEY
 
             def __init__(self, table, start_value=NONE_STRING):
                 super().__init__()
@@ -897,7 +2177,8 @@ class TranslationDialog(QtW.QWidget):
                 self.setToolTip('Select column to use as source')
                 self.addItems(table.source_columns + [NONE_STRING])
                 self.setCurrentText(start_value)
-                # todo: add margins?
+                # todo: add margins to text box?
+                # It's rather close to the left side.
 
             @property
             def value(self):
@@ -905,7 +2186,7 @@ class TranslationDialog(QtW.QWidget):
 
         class WhiteSpaceCheckbox(QtW.QCheckBox):
             name = 'Check for Whitespace'
-            dict_name = 'whitespace chk'
+            dict_name = WHITESPACE_CHK_KEY
 
             def __init__(self, table, start_value=True):
                 super().__init__()
@@ -920,9 +2201,9 @@ class TranslationDialog(QtW.QWidget):
 
         class DuplicateCheckbox(QtW.QCheckBox):
             name = 'Check for Duplicates'
-            dict_name = 'duplicate chk'
+            dict_name = DUPLICATE_CHK_KEY
 
-            def __init__(self, table, start_value=True):
+            def __init__(self, table, start_value=False):
                 self.table = table
                 super().__init__()
                 self.setToolTip('Set whether duplicate values are checked for '
@@ -949,28 +2230,52 @@ class TranslationDialog(QtW.QWidget):
             for y in range(len(self.target_columns)):
                 for x, option_class in enumerate(self.option_widget_classes):
                     self.setCellWidget(y, x, option_class(
-                            table=self  # pass ref to self for use if needed
-                        ))
+                        table=self  # pass ref to self for use if needed
+                    ))
             self.resizeColumnsToContents()
-
-        def store_settings(self):
-            """Saves settings for re-use"""
-            # todo
 
         @property
         def settings(self):
             """
-            Returns dictionary of column settings
-            Returned dictionary is a dictionary of dictionaries.
-            First dictionary has target column title as key.
-            Second level dictionaries have setting name as key.
-            :return: dict
+            Returns list of column translation settings dicts.
+            Returned dictionary is a list of dictionaries.
+            Interior dictionaries have setting name as key.
+            At time of this writing, interior dict looks like:
+            {
+                TARGET_COLUMN_KEY: < col name >
+                SOURCE_COLUMN_KEY: < col name >
+                WHITESPACE_CHECK_KEY: < bool >
+                DUPLICATE_CHECK_KEY: < bool >
+            }
+            :return: list
             """
-            return {column_name:
-                    {self.cellWidget(y, x).dict_name:
-                     self.cellWidget(y, x).value
-                     for x in range(0, len(self.option_widget_classes))}
-                    for y, column_name in enumerate(self.target_columns)}
+
+            def combine_dicts(*dicts):
+                d = {}
+                [d.update(dict__) for dict__ in dicts]
+                return d
+
+            translation_dicts = [
+                # return a list of dictionaries with widget key and value
+                combine_dicts(
+                    {
+                        self.cellWidget(y, x).dict_name:
+                            self.cellWidget(y, x).value
+                        for x in range(len(self.option_widget_classes))
+                    },
+                    {
+                        # since the tgt col is not in option_widget_classes,
+                        # it needs to be added here.
+                        TARGET_COLUMN_NAME_KEY: tgt_col_name
+                    }
+                )
+                for y, tgt_col_name in enumerate(self.target_columns)
+            ]
+            # remove dictionaries whose source is none
+            for dict_ in translation_dicts:
+                if dict_[SOURCE_COLUMN_NAME_KEY] == NONE_STRING:
+                    translation_dicts.remove(dict_)
+            return translation_dicts
 
     @property
     def settings(self):
@@ -979,15 +2284,11 @@ class TranslationDialog(QtW.QWidget):
         :return: dict
         """
         return {
-            'table': self.table.settings,
-            'source_sheet': self.source_sheet,
-            'target_sheet': self.target_sheet,
-            'source_start': self.source_start_row,
-            'target_start': self.target_start_row
+            COLUMN_TRANSLATIONS_KEY: self.table.settings,
         }
 
 
-class PreliminarySettings(QtW.QWidget):
+class PreliminarySettings(QtW.QDialog):
     class SettingField(QtW.QLineEdit):
         # string appearing next to field in settings table
         side_string = ''  # replaced by child classes
@@ -999,13 +2300,12 @@ class PreliminarySettings(QtW.QWidget):
         def __init__(self, start_str='', default_values=None):
             assert isinstance(start_str, str)
             assert default_values is None or \
-                   isinstance(default_values, (tuple, list))
+                isinstance(default_values, (tuple, list))
             super().__init__()
             self.start_str = start_str
             # add default values -before- standard defaults (order matters)
             if default_values:
-                self.default_strings = default_values + \
-                                       tuple(self.defaults)
+                self.default_strings = default_values + tuple(self.defaults)
             # set text to default value
             self.setText(self._find_default_value())
             self.gui_setup()
@@ -1035,9 +2335,13 @@ class PreliminarySettings(QtW.QWidget):
                 else:
                     return ''
 
+        @property
+        def value(self):
+            return self.text()
+
     class ImportSheetField(SheetField):
         """Gets name of sheet to import from"""
-        dict_string = 'source_sheet'
+        dict_string = SOURCE_SHEET_KEY
         side_string = 'Import sheet name'
         default_strings = 'import', 'Sheet1', 'sheet1'
 
@@ -1069,7 +2373,7 @@ class PreliminarySettings(QtW.QWidget):
 
     class ExportSheetField(SheetField):
         """Gets name of sheet to export to"""
-        dict_string = 'target_sheet'
+        dict_string = TARGET_SHEET_KEY
         side_string = 'Export sheet name'
         default_strings = 'export', 'Sheet2', 'sheet2'
 
@@ -1137,7 +2441,7 @@ class PreliminarySettings(QtW.QWidget):
 
     class ImportSheetStartLine(StartLineField):
         """Gets index of line to start importing from"""
-        dict_string = 'source_start'
+        dict_string = SOURCE_START_KEY
         side_string = 'Import sheet start line'
 
         def gui_setup(self):
@@ -1146,7 +2450,7 @@ class PreliminarySettings(QtW.QWidget):
 
     class ExportSheetStartLine(StartLineField):
         """Gets index of line to start writing to"""
-        dict_string = 'target_start'
+        dict_string = TARGET_START_KEY
         side_string = 'Export sheet start line'
 
         def gui_setup(self):
@@ -1156,19 +2460,13 @@ class PreliminarySettings(QtW.QWidget):
 
     class CancelButton(QtW.QPushButton):
         """Cancels out of macro"""
-        def __init__(self):
+
+        def __init__(self, cancel_func):
             super().__init__()
             self.setText('Cancel')
-            self.clicked.connect(self._cancel)
+            # noinspection PyUnresolvedReferences
+            self.clicked.connect(cancel_func)  # not error
             self.show()
-
-        def _cancel(self):
-            """
-            Cancels out of macro.
-            """
-            # exit macro, without exiting EVERYTHING
-            QtW.QApplication.quit()  # not an error, doesn't need self arg
-            # (lesson learned: don't use 'quit' / SystemExit in a macro)
 
     def __init__(self, starting_dictionary=None):
         print('Preliminary Dlg began')
@@ -1195,8 +2493,6 @@ class PreliminarySettings(QtW.QWidget):
         for x, field_class in enumerate(field_classes):
             dict_str = field_class.dict_string
             start_str = '' if dict_str not in values else values[dict_str]
-
-            # todo: additional defaults should be found and added here
             # in the future
             additional_default_values = []
 
@@ -1207,11 +2503,11 @@ class PreliminarySettings(QtW.QWidget):
             self.fields.append(field)
             grid.add_row(field.side_string, field)
         # add ok and cancel buttons
-        grid.add_row(self.CancelButton(), OkButton(self._ok))
+
+        grid.add_row(self.CancelButton(lambda: self.reject()),
+                     OkButton(self._ok))
         # todo: limit / freeze size of window
         self.setWindowTitle(APP_WINDOW_TITLE)
-        print('finished creating, showing.')
-        self.show()
 
     def _ok(self):
         """
@@ -1220,42 +2516,30 @@ class PreliminarySettings(QtW.QWidget):
         Creates AssociationTableWidget and passes it the created
         settings dictionary.
         """
-        values_dict = self.get_values_dict()
         # check that entered sheets exist
         if any([not field.check_valid() for field in self.fields]):
             # field.check_valid displays info dialogs to user
             # if not valid.
             return  # does not move on if any fields are not valid
         self.setWindowTitle('')  # allow next widget to use the same title
-        values_dict['prior_widget'] = self
-        TranslationDialog(**values_dict)  # create next widget
-        self.hide()  # hide self until returned to or macro ends
+        self.accept()
 
-    def resume(self):
-        """
-        Returns this widget to activity after user returns to it.
-        This most likely means the user has hit clicked 'back' on
-        the following widget
-        :return:
-        """
-        self.setWindowTitle(APP_WINDOW_TITLE)
-        self.show()
-
-    def get_values_dict(self):
+    @property
+    def settings(self):
         """
         Gets dictionary of values stored in each field
         :return: dict
         """
-        return {field.dict_string: field.text() for field in self.fields}
+        return {field.dict_string: field.value for field in self.fields}
 
 
-class FinalSettings(QtW.QWidget):
-    def __init__(self, **kwargs):
+class FinalSettings(QtW.QDialog):
+    def __init__(self, settings):
+        assert isinstance(settings, (dict, Settings)), \
+            'expected dict or Settings, got instead: %s' % settings
         print('Final Settings dlg began')
         super().__init__()
-        self.prior_widget = kwargs.get('prior_widget')
-        self._settings = kwargs
-        # del self.settings['prior_widget']
+        self._settings = settings
 
         field_classes = [
             self.DuplicateActionOption,
@@ -1265,7 +2549,7 @@ class FinalSettings(QtW.QWidget):
         def back():
             self.setWindowTitle('')  # free up title
             self.prior_widget.resume()
-            self.close()
+            self.reject()
 
         layout = ExpandingGridLayout()
         self.fields = []  # list of fields for user to input/select strings
@@ -1282,224 +2566,13 @@ class FinalSettings(QtW.QWidget):
         def __init__(self, host):
             assert isinstance(host, FinalSettings)
             super().__init__()
+            self.host = host
 
             def apply():
-                """
-                Builds translation object and passes it to FinalAction
-                """
-                # todo: this whole function is ridiculous. break it up?
-                # get settings
-                settings = host.settings
-                src_sheet = settings['source_sheet']
-                tgt_sheet = settings['target_sheet']
-                assert isinstance(src_sheet, Sheet)
-                assert isinstance(tgt_sheet, Sheet)
-                # make translation obj
+                self.host.accept()
 
-                def delete_confirm():
-                    reply = QtW.QMessageBox.question(
-                        self,
-                        'Overwrite Cells?',
-                        'Cells on the target sheet will be overwritten.\n'
-                        'Proceed?',
-                        QtW.QMessageBox.Yes | QtW.QMessageBox.Cancel,
-                        QtW.QMessageBox.Cancel
-                    )
-                    return reply == QtW.QMessageBox.Yes
-
-                translation = Translation(
-                    src_sheet,
-                    tgt_sheet,
-                    source_start_row=settings['source_start'],
-                    target_start_row=settings['target_start'],
-                    confirm_dialog_func=delete_confirm
-                )
-
-                # make column translations
-                table_set = settings['table']
-
-                duplicate_positions = set()
-                whitespace_positions = set()
-                for tgt_col_name in table_set:
-                    col_settings = table_set[tgt_col_name]
-                    src_col_name = col_settings['src column']
-                    if src_col_name == NONE_STRING:
-                        continue
-                    src_col = src_sheet.get_column(src_col_name)
-                    assert isinstance(src_col, Column)
-                    src_col_index = src_col.column_index
-                    tgt_col = tgt_sheet.get_column(tgt_col_name)
-                    tgt_col_index = tgt_col.column_index
-                    translation.add_column_translation(
-                        src_col_index, tgt_col_index)
-                    # find duplicates / whitespace
-                    if col_settings['duplicate chk'] and \
-                           settings['duplicate_action'] != 'Do nothing':
-                        cell_value_set = set()
-                        for cell in src_col:
-                            if cell.y < settings['source_start']:
-                                continue
-                            if cell.value in cell_value_set:
-                                duplicate_positions.add(cell.position)
-                            else:
-                                cell_value_set.add(cell.value)
-                    if col_settings['whitespace chk'] and \
-                            settings['whitespace_action'] != 'Do nothing':
-                        for cell in src_col:
-                            # check if cell value is string and has whitespace
-                            if isinstance(cell.value, str) and \
-                                    cell.value != cell.value.strip():
-                                whitespace_positions.add(cell.position)
-
-                def color_cell_and_row(cell_pos, cell_color,
-                                       row_color):
-                    # mark all cells in row
-                    [translation.add_cell_transform(
-                        (x, cell_pos[1]),
-                        'src',
-                        lambda c: c.set_color(row_color)
-                    ) for x in range(len(
-                        src_sheet.get_row(cell_pos[1])))]
-                    # mark cell with duplicate red1
-                    translation.clear_cell_transform(
-                        cell_pos, 'src')
-                    translation.add_cell_transform(
-                        cell_pos, 'src',
-                        lambda c: c.set_color(cell_color))
-
-                def position_report(*src_positions):
-                    """
-                    Converts iterable of positions into a more user-friendly
-                    report.
-                    output should consist of a list of row numbers, each with
-                    the names of the column containing passed position
-                    :param positions: tuples (int x, int y)
-                    :return: str
-                    """
-
-                    def src_to_tgt_pos(src_pos_):
-                        """
-                        Converts src_pos to tgt_pos
-                        :param src_pos_: int x, int y
-                        :return: int x, int y
-                        """
-
-                        def find_col_translation(x_):
-                            for col_transform in \
-                                    translation.column_translations:
-                                assert isinstance(col_transform,
-                                                  ColumnTranslation)
-                                if col_transform.source_column == x_:
-                                    return col_transform
-
-                        # find column the x index will be moved to
-                        # by looking through column transforms
-                        x_translation = find_col_translation(
-                            src_pos_[0])
-                        assert isinstance(x_translation, ColumnTranslation)
-                        tgt_x = x_translation.target_column
-                        tgt_y = src_pos_[1] - translation.source_start_row + \
-                            translation.target_start_row
-                        return tgt_x, tgt_y
-
-                    # first convert src positions to tgt positions
-                    tgt_positions = [src_to_tgt_pos(src_pos_)
-                                     for src_pos_ in src_positions]
-
-                    rows = []  # list of row indices in report.
-                    # This keeps the columns in order.
-                    row_columns = {}  # dictionary of string lists
-                    for x, y in tgt_positions:
-                        column_name = tgt_sheet.get_column(x).name
-                        if y not in rows:
-                            row_columns[y] = list()
-                            rows.append(y)
-                        row_columns[y].append(column_name)
-                    # now make the report
-                    row_strings = [
-                        'Row %s; %s' % (y, ', '.join(row_columns[y]))
-                        for y in rows]
-                    return '\n'.join(row_strings)
-
-                print('dupli act: %s' % settings['duplicate_action'])
-                print('whitespace act: %s' % settings['whitespace_action'])
-                # apply response for duplicates
-                if settings['duplicate_action'] == 'Highlight':
-                    # highlight
-                    for position in duplicate_positions:
-                        color_cell_and_row(position, FIREBRICK, CORAL)
-                    if len(duplicate_positions) > 0:
-                        InfoMessage(
-                            parent=self,
-                            title='Duplicate Values',
-                            main='%s Duplicate cell values found' % len(
-                                duplicate_positions),
-                            secondary='Cell values were highlighted in '
-                                      'checked columns',
-                            detail=position_report(*duplicate_positions)
-                        )
-                elif settings['duplicate_action'] == 'Remove row':
-                    [translation.add_row_deletion(position[1])
-                     for position in duplicate_positions]
-                    if len(duplicate_positions)> 0:
-                        n_rows_w_duplicates = len(set(
-                            [pos[1] for pos in duplicate_positions]))
-                        InfoMessage(
-                            parent=self,
-                            title='Duplicate Values',
-                            main='%s Duplicate cell values found' %
-                                 n_rows_w_duplicates,
-                            secondary='%s Cell rows containing duplicate '
-                                      'values were removed' %
-                                      n_rows_w_duplicates,
-                            detail=position_report(*duplicate_positions)
-                        )
-                # apply response to whitespace
-                if settings['whitespace_action'] == 'Highlight':
-                    [color_cell_and_row(pos, ORANGE, KHAKI)
-                     for pos in whitespace_positions]
-                    if len(whitespace_positions) > 0:
-                        InfoMessage(
-                            parent=self,
-                            title='Whitespace Found',
-                            main='%s Cells with unneeded whitespace found' %
-                                 len(whitespace_positions),
-                            secondary='%s Cell values were highlighted in '
-                                      'checked '
-                                      'columns' % len(whitespace_positions),
-                            detail=position_report(*whitespace_positions)
-                        )
-                elif settings['whitespace_action'] == 'Remove whitespace':
-                    def remove_whitespace(cell_position):
-                        cell_ = src_sheet.get_cell(cell_position)
-                        if isinstance(cell_.value, str):
-                            cell_.value = cell_.value.strip()
-                    [remove_whitespace(pos) for pos in whitespace_positions]
-                    if whitespace_positions:
-                        InfoMessage(
-                            parent=self,
-                            title='Whitespace Removed',
-                            main='Whitespace removed from %s cells' % len(
-                                whitespace_positions),
-                            secondary='Cell values were edited to remove '
-                                      'unneeded '
-                                      'tab, linefeed, return, formfeed, '
-                                      'and/or vertical tab characters.',
-                            detail=position_report(*duplicate_positions)
-                        )
-
-                # apply translation
-                success = translation.commit()
-                # result is true if commit was successful
-                if success:
-                    InfoMessage(  # tell user translation has been applied
-                        parent=self,
-                        title='Macro Finished',
-                        main='Finished moving cell values'
-                    )
-                    QtW.QApplication.quit()  # not an error. self not needed.
-
-            self.clicked.connect(apply)
+            # noinspection PyUnresolvedReferences
+            self.clicked.connect(apply)  # not an error
             self.setText('Apply')
             self.setToolTip('Apply selections & Move cells from source sheet '
                             'to target')
@@ -1528,14 +2601,14 @@ class FinalSettings(QtW.QWidget):
         default_option = 'Highlight'
         tool_tip = 'Select action to be taken for rows containing ' \
                    'duplicate in checked columns'
-        dict_str = 'duplicate_action'
+        dict_str = DUPLICATE_ACTION_KEY
         side_string = 'Action for duplicates'
 
     class WhitespaceOption(MenuOption):
         options = 'Do nothing', 'Highlight', 'Remove whitespace'
         default_option = 'Highlight'
         tool_tip = 'Select action to be taken for cells containing whitespace'
-        dict_str = 'whitespace_action'
+        dict_str = WHITESPACE_ACTION_KEY
         side_string = 'Action for whitespace'
 
     @property
@@ -1544,10 +2617,7 @@ class FinalSettings(QtW.QWidget):
         Returns grand collection of all settings inputted by user
         :return: dict
         """
-        settings = self._settings
-        [settings.__setitem__(option.dict_str, option.value)
-         for option in self.fields]
-        return settings
+        return {option.dict_str: option.value for option in self.fields}
 
 
 class InfoMessage(QtW.QMessageBox):
@@ -1556,6 +2626,7 @@ class InfoMessage(QtW.QMessageBox):
     and secondary message beneath that.
     Icon is an Info 'I.'
     """
+
     def __init__(self, parent, title, main, secondary='', detail=''):
         assert all([isinstance(item, str)
                     for item in (title, main, secondary, detail)])
@@ -1575,13 +2646,10 @@ class ConfirmDialog(QtW.QMessageBox):
     """
     Dialog for user to accept or cancel
     """
+
     def __init__(self, parent, title, main, secondary=''):
-        assert all([isinstance(item, str)
-                    for item in (title, main, secondary)])
+        assert all([isinstance(item, str)for item in (title, main, secondary)])
         super().__init__(parent)
-
-
-
         self.setWindowTitle(title)
         self.setText(main)
         if secondary:
@@ -1594,8 +2662,10 @@ class OkButton(QtW.QPushButton):
     """
     calls passed function when clicked by user.
     """
+
     def __init__(self, ok_function):
         super().__init__('OK')
+        # noinspection PyUnresolvedReferences
         self.clicked.connect(ok_function)  # not error
         self.setToolTip('Move to next page')
         self.show()
@@ -1605,6 +2675,7 @@ class BackButton(QtW.QPushButton):
     def __init__(self, back_function):
         super().__init__('Back')
         self.setToolTip('Go to last page')
+        # noinspection PyUnresolvedReferences
         self.clicked.connect(back_function)  # not error
         self.show()
 
@@ -1629,25 +2700,176 @@ class ExpandingGridLayout(QtW.QGridLayout):
                 item = QtW.QLabel(item)
             self.addWidget(item, y, x)
 
+
 ###############################################################################
 # SETTINGS / DATA
 
 
+class OS:
+    """
+    Handles interaction with different operating systems.
+
+    This may not need to be a class, but any independent functions appear
+    as their own macro, so this is instead its own class
+    """
+    if platform.system() not in ('Linux', 'Windows', 'Mac'):
+        raise OSError('Operating System \'%s\' not supported. Supported'
+                      'operating systems are Linux, Windows, and Mac')
+
+    @staticmethod
+    def get_app_data_path():
+        # get method name that should return path
+        data_path_func_name = '_get_%s_data_path' % platform.system().lower()
+        if hasattr(OS, data_path_func_name):
+            data_path_func = getattr(OS, data_path_func_name)
+        else:
+            raise AttributeError('Could not find %s function in OS class'
+                                 % data_path_func_name)
+        return data_path_func()
+
+    @staticmethod
+    def _get_linux_data_path():
+        """
+        Gets data folder path for macro on Linux system.
+        :return: str path
+        """
+        home_folder_path = os.getenv('HOME')
+        return os.path.join(home_folder_path, '.' + APP_FOLDER_NAME)
+
+    @staticmethod
+    def _get_windows_data_path():
+        """
+        Gets data folder path for macro on Windows system.
+        :return: str path
+        """
+        app_folder_path = os.getenv('APPDATA')
+        return os.path.join(app_folder_path, APP_FOLDER_NAME)
+
+    @staticmethod
+    def _get_mac_data_path():
+        """
+        Gets data folder path for macro on Mac system.
+        :return: str path
+        """
+        raise NotImplementedError('have not yet set up mac path')
+
+
+class Files:
+    """
+    Handles retrieval and use of macro's files
+    """
+    file_creation_permission = False
+
+    @staticmethod
+    def get_file(relative_path, create_if_absent):
+        """
+        Returns file from relative path string.
+        If not present, creates it if 'create_if_absent' is True,
+        or returns None
+        :param relative_path: path from macro root
+            May either be string, tuple, or list.
+        :param create_if_absent: whether file should be created if
+        it is not present at specified path.
+        """
+        assert isinstance(relative_path, (str, list, tuple))
+        if not isinstance(relative_path, str):
+            # if not a string, turn it into one
+            relative_path = os.path.join(*relative_path)
+
+
 class Settings:
-    def __init__(self, settings_file_path):
+    settings_file_name = 'settings.ser'
+
+    def __init__(self, macro_folder):
         print('created settings')
-        self.file_path = settings_file_path
+        self.file_path = os.path.join(macro_folder, self.settings_file_name)
+        self._settings_dict = {}
+        self.load()
+
+    def __getitem__(self, item):
+        return self._settings_dict[item]
+
+    def __setitem__(self, key, value):
+        self._settings_dict[key] = value
+
+    def __delitem__(self, key):
+        del self._settings_dict[key]
+
+    def __contains__(self, item):
+        return item in self._settings_dict
+
+    def __repr__(self):
+        return 'Settings(%s)' % self._settings_dict
+
+    def save(self):
+        """
+        Saves settings in settings file.
+        :return: bool of whether saving was successful
+        """
+        try:
+            self.saved_settings = self._settings_dict
+        except IOError:
+            return False
+        else:
+            return True
+
+    def load(self):
+        """
+        Loads settings from settings file in file path
+        :return bool of whether loading was successful
+        """
+        try:
+            self._settings_dict = self.saved_settings
+        except IOError:
+            self._settings_dict = {}
+            return False
+        else:
+            return True
+
+    def update(self, dict_):
+        assert isinstance(dict_, dict), 'expected dict, got: %s' % dict_
+        self._settings_dict.update(dict_)
 
     @property
-    def settings(self):
-        # todo
-        return dict()
+    def saved_settings(self):
+        """
+        Gets settings dictionary if one exists, otherwise returns
+        an empty dictionary.
+        Will raise IOError if this could not be accomplished.
+        :return: dict
+        """
+        try:
+            with open(self.file_path, 'r') as settings_file:
+                settings = pickle.load(settings_file)
+        except IOError and FileNotFoundError:
+            print(IOError.strerror)
+            raise IOError('Could not load settings from existing file')
+            # todo: if cannot find file, ask to create it.
+        else:
+            return settings
+
+    @saved_settings.setter
+    def saved_settings(self, new_settings):
+        """
+        Stores settings dictionary.
+        Will ask permission from user and try to create folder + file
+        if needed.
+        Will raise IOError if this could not be accomplished.
+        :param new_settings: dict
+        """
+        try:
+            with open(self.file_path, 'w') as settings_file:
+                pickle.dump(new_settings, settings_file)
+        except IOError:
+            print('could not save settings to file')
+            print(IOError.strerror)
+            raise IOError('could not save settings to file')
 
 
 def lead_app():
     """
     Main lead sheet management macro.
-    Calls
+    Calls each dialog in turn and then creates and applies Translation.
     """
     # flow:
     # preliminary settings ->
@@ -1656,20 +2878,56 @@ def lead_app():
     # push data to target
     # close / display exit message
     print('started pyleadsmacro')
-    print(sys.version_info)
+    print('Python version %s.%s.%s %s. serial: %s' % sys.version_info)
     app = QtW.QApplication([''])  # expects list of strings.
     print('started app')
 
     try:
-        # get settings path
-        settings_path = ''  # placeholder. todo: get str, cross-platform
-        # build and show first window
-        settings = Settings(settings_path).settings
-        prelim = PreliminarySettings(settings)  # get settings from prelim dialog
+        # get settings
+        settings = Settings(OS.get_app_data_path())
+        # get settings from prelim dialog
+        run = True
+        step = 0
 
-        sys.exit(app.exec_())
-        # todo: refactor all the dialogs so they return to this point,
-        # rather than forming a chain of one dialog calling the next
+        dialog_classes = [
+            PreliminarySettings,
+            TranslationDialog,
+            FinalSettings
+        ]
+        while run:
+            dlg = dialog_classes[step](settings)  # create dlg for current step
+            result = dlg.exec_()  # run dlg and get result.
+            settings.update(dlg.settings)
+            if result:  # if user accepted, go to next step
+                step += 1
+            else:  # otherwise, go back.
+                step -= 1
+            if step < 0:  # if user has cancelled out of first dlg
+                run = False
+            elif step >= len(dialog_classes):  # if user has accepted last dlg
+                break
+
+        if run:  # if run is still ongoing
+            translation = Translation(  # create translation
+                source_sheet=model[settings[SOURCE_SHEET_KEY]],
+                target_sheet=model[settings[TARGET_SHEET_KEY]],
+                source_start_row=settings[SOURCE_START_KEY],
+                target_start_row=settings[TARGET_START_KEY],
+                column_translations=settings[COLUMN_TRANSLATIONS_KEY],
+                dialog_parent=dlg,  # there's no way for this to be reached
+                #  without dlg being assigned.
+                duplicate_action=settings[DUPLICATE_ACTION_KEY],
+                whitespace_action=settings[WHITESPACE_ACTION_KEY]
+            )
+            translation.commit()  # move cell values
+
+            InfoMessage(  # tell user translation has been applied
+                parent=dlg,
+                title='Macro Finished',
+                main='Finished moving cell values'
+            )
+
+        settings.save()  # save settings for next run
     except SystemExit:
         print('SystemExit raised')
         print('Exited macro')
@@ -1679,4 +2937,7 @@ def lead_app():
 
 # create model handler object and in doing so,
 # check PyUno model is a Workbook
-model = Model(MODEL)
+model = Office.get_model()
+
+if __name__ == '__main__':
+    lead_app()
