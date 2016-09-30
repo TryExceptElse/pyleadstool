@@ -153,6 +153,7 @@ class Model:
 
 
 class Sheet:
+    i7e_sheet = None  # interface sheet obj. ie; com.sun.star...Sheet
     _reference_row_index = 0
     _reference_column_index = 0
 
@@ -744,7 +745,7 @@ class Office:
                     reference_row_index=0,
                     reference_column_index=0
             ) -> None:
-                self.uno_sheet = uno_sheet
+                self.i7e_sheet = uno_sheet
                 self.reference_row_index = reference_row_index
                 self.reference_column_index = reference_column_index
 
@@ -868,7 +869,7 @@ class Office:
                 Gets uno sheet object
                 :return: uno sheet
                 """
-                return self.sheet.uno_sheet
+                return self.sheet.i7e_sheet
 
         class Column(Line, Column):
             """
@@ -1028,7 +1029,11 @@ class Office:
             Handles usage of an individual cell
             """
 
-            def __init__(self, sheet, position):
+            def __init__(
+                    self,
+                    sheet: Sheet,
+                    position: tuple
+            ) -> None:
                 assert all([isinstance(item, int) for item in position])
                 assert len(position) == 2
                 self.position = tuple(position)
@@ -1056,7 +1061,7 @@ class Office:
                 Gets uno Sheet obj.
                 :return: uno Sheet obj
                 """
-                return self.sheet.uno_sheet
+                return self.sheet.i7e_sheet
 
             @property
             def value_without_whitespace(self) -> str:
@@ -2809,8 +2814,11 @@ class Settings:
         try:
             self.saved_settings = self._settings_dict
         except IOError:
+            print('Saving Settings was unsuccessful.')
+            print(IOError.strerror)
             return False
         else:
+            print('Saved Settings Successfully.')
             return True
 
     def load(self):
