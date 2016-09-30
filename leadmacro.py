@@ -1796,8 +1796,8 @@ class ColumnTranslation:
             check_for_duplicates: bool=False) -> None:
         if (
             bool(source_column_i is None) ==
-            bool(source_column_name is None),
-        ) is True:  # no idea why, but without 'is True' this will always
+            bool(source_column_name is None)
+        ):  # no idea why, but without 'is True' this will always
             # raise the ValueError
             raise ValueError(
                 'Source column index or name must be passed, but not both. '
@@ -1807,8 +1807,8 @@ class ColumnTranslation:
                    source_column_name, source_column_name.__class__.__name__))
         if (
             bool(target_column_i is None) ==
-            bool(target_column_name is None),
-        ) is True:  # no idea why, but without 'is True' this will always
+            bool(target_column_name is None)
+        ):  # no idea why, but without 'is True' this will always
             # raise the ValueError
             raise ValueError(
                 'Target column index or name must be passed, but not both. '
@@ -2112,7 +2112,6 @@ class TranslationDialog(QtW.QDialog):
         self.target_sheet = target_sheet  # sheet to send data to
         self.source_start_row = source_start
         self.target_start_row = target_start
-        self._final_settings = None
         self.setWindowTitle(APP_WINDOW_TITLE)
         self.show()
 
@@ -2161,8 +2160,10 @@ class TranslationDialog(QtW.QDialog):
             super().__init__()
             assert isinstance(source_columns, (list, tuple))
             assert isinstance(target_columns, (list, tuple))
-            assert all([isinstance(column, str) for column in source_columns])
-            assert all([isinstance(column, str) for column in target_columns])
+            assert all([isinstance(column, (int, float, str))
+                        for column in source_columns])
+            assert all([isinstance(column, (int, float, str))
+                        for column in target_columns])
             self.source_columns = source_columns
             self.target_columns = target_columns
             self.option_widget_classes = [
@@ -2288,9 +2289,7 @@ class TranslationDialog(QtW.QDialog):
         Returns settings dictionary
         :return: dict
         """
-        return {
-            COLUMN_TRANSLATIONS_KEY: self.table.settings,
-        }
+        return {COLUMN_TRANSLATIONS_KEY: self.table.settings}
 
 
 class PreliminarySettings(QtW.QDialog):
@@ -2303,9 +2302,13 @@ class PreliminarySettings(QtW.QDialog):
         default_strings = tuple()  # replaced by child classes
 
         def __init__(self, start_str='', default_values=None):
-            assert isinstance(start_str, str)
+            assert isinstance(start_str, str), \
+                'Expected start_str to be str, instead %s was passed %s.' \
+                % (self.__class__.__name__, start_str)
             assert default_values is None or \
-                isinstance(default_values, (tuple, list))
+                isinstance(default_values, (tuple, list)), \
+                '%s __init__ was passed %s for default_values. ' \
+                'That should not be' % (self.__name__, default_values)
             super().__init__()
             self.start_str = start_str
             # add default values -before- standard defaults (order matters)
@@ -2317,7 +2320,7 @@ class PreliminarySettings(QtW.QDialog):
             self.show()
 
         def _find_default_value(self):
-            pass  # does nothing here.
+            raise NotImplementedError  # does nothing here.
 
         def gui_setup(self):
             pass  # does nothing here, inherited by child classes
@@ -2497,9 +2500,10 @@ class PreliminarySettings(QtW.QDialog):
         print('began field creation')
         for x, field_class in enumerate(field_classes):
             dict_str = field_class.dict_string
-            start_str = '' if dict_str not in values else values[dict_str]
+            start_str = ''
             # in the future
-            additional_default_values = []
+            additional_default_values = [values[dict_str]] if \
+                dict_str in values else []
 
             # create and add the field
             field = field_class(start_str=start_str,
@@ -2739,7 +2743,7 @@ class OS:
         :return: str path
         """
         home_folder_path = os.getenv('HOME')
-        return os.path.join(home_folder_path, '.' + APP_FOLDER_NAME)
+        return os.path.join(home_folder_path, '.config', APP_FOLDER_NAME)
 
     @staticmethod
     def _get_windows_data_path():
@@ -2766,20 +2770,22 @@ class Files:
     file_creation_permission = False
 
     @staticmethod
-    def get_file(relative_path, create_if_absent):
+    def check_file_path_exists(file_path: str) -> bool:
         """
-        Returns file from relative path string.
-        If not present, creates it if 'create_if_absent' is True,
-        or returns None
-        :param relative_path: path from macro root
-            May either be string, tuple, or list.
-        :param create_if_absent: whether file should be created if
-        it is not present at specified path.
+        Checks that file path exists, creates it if it does not,
+        and returns bool of whether file path now exists (
+        returning false if an error arose)
+        :param file_path: str
+        :return: bool
         """
-        assert isinstance(relative_path, (str, list, tuple))
-        if not isinstance(relative_path, str):
-            # if not a string, turn it into one
-            relative_path = os.path.join(*relative_path)
+        if not os.path.exists(file_path):
+            print('path %s does not exist, creating it' % file_path)
+            try:
+                os.mkdir(file_path)
+            except OSError:
+                print(sys.exc_info())
+                return False
+        return True
 
 
 class Settings:
@@ -2814,11 +2820,8 @@ class Settings:
         try:
             self.saved_settings = self._settings_dict
         except IOError:
-            print('Saving Settings was unsuccessful.')
-            print(IOError.strerror)
             return False
         else:
-            print('Saved Settings Successfully.')
             return True
 
     def load(self):
@@ -2834,30 +2837,53 @@ class Settings:
         else:
             return True
 
-    def update(self, dict_):
+    def update(self, dict_: dict) -> None:
+        """
+        Updates contained dictionary with key-value pairs from
+        another dict.
+        :param dict_: dict
+        :return: None
+        """
         assert isinstance(dict_, dict), 'expected dict, got: %s' % dict_
         self._settings_dict.update(dict_)
 
+    def check_settings_dir_exists(self) -> bool:
+        """
+        Ensure that dir containing settings exists
+        :return: bool of whether dir exists
+        (either pre-existing or was created)
+        """
+        settings_dir = os.path.dirname(self.file_path)
+        print('checking settings dir \'%s\' exists' % settings_dir)
+        return Files.check_file_path_exists(settings_dir)
+
     @property
-    def saved_settings(self):
+    def saved_settings(self) -> dict:
         """
         Gets settings dictionary if one exists, otherwise returns
         an empty dictionary.
         Will raise IOError if this could not be accomplished.
         :return: dict
         """
+        print('loading settings from %s' % self.file_path)
+        self.check_settings_dir_exists()
         try:
-            with open(self.file_path, 'r') as settings_file:
+            with open(self.file_path, 'rb') as settings_file:
                 settings = pickle.load(settings_file)
         except IOError and FileNotFoundError:
-            print(IOError.strerror)
+            print('Could not load settings from file.')
+            print(sys.exc_info())
             raise IOError('Could not load settings from existing file')
             # todo: if cannot find file, ask to create it.
+        except EOFError:
+            print('No information in file')
+            return {}
         else:
+            print('got settings: %s' % settings)
             return settings
 
     @saved_settings.setter
-    def saved_settings(self, new_settings):
+    def saved_settings(self, new_settings: dict):
         """
         Stores settings dictionary.
         Will ask permission from user and try to create folder + file
@@ -2865,13 +2891,18 @@ class Settings:
         Will raise IOError if this could not be accomplished.
         :param new_settings: dict
         """
+        print('saving settings to %s' % self.file_path)
+        self.check_settings_dir_exists()
         try:
-            with open(self.file_path, 'w') as settings_file:
+            with open(self.file_path, 'wb') as settings_file:
                 pickle.dump(new_settings, settings_file)
         except IOError:
             print('could not save settings to file')
-            print(IOError.strerror)
+            print(sys.exc_info())
             raise IOError('could not save settings to file')
+        else:
+            print('Saved Settings:')
+            print(new_settings)
 
 
 def lead_app():
@@ -2885,7 +2916,7 @@ def lead_app():
     # final settings / info
     # push data to target
     # close / display exit message
-    print('started pyleadsmacro')
+    print('\nstarted pyleadsmacro')
     print('Python version %s.%s.%s %s. serial: %s' % sys.version_info)
     app = QtW.QApplication([''])  # expects list of strings.
     print('started app')
