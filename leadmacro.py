@@ -2062,14 +2062,35 @@ class CellTransform:
 ###############################################################################
 # GUI elements
 
-class TranslationDialog(QtW.QDialog):
+class PyLeadDlg(QtW.QDialog):
+    """
+    Abstract class inherited from by other dialogs
+    """
+
+    def __init__(self, settings: dict) -> None:
+        super().__init__()
+        self._initial_settings = settings
+
+    def closeEvent(self, event):
+        QtW.QApplication.quit()  # does not need self arg
+
+    @property
+    def settings(self) -> dict:
+        """
+        Returns settings inputted by user in this dlg
+        :return: dict
+        """
+        raise NotImplementedError
+
+
+class TranslationDialog(PyLeadDlg):
     """
     Table widget containing columns and options to manipulate them
     """
 
     def __init__(self, settings):
         print('Translation Dlg began')
-        super().__init__()
+        super().__init__(settings)
         source_sheet = settings[SOURCE_SHEET_KEY]
         target_sheet = settings[TARGET_SHEET_KEY]
         source_start = settings[SOURCE_START_KEY]
@@ -2118,6 +2139,7 @@ class TranslationDialog(QtW.QDialog):
         confirm_bar.addWidget(OkButton(ok))
         main_layout.addWidget(self.table)
         main_layout.addItem(confirm_bar)
+        # todo: add save/load translation bar
         self.setLayout(main_layout)
 
     class TranslationTable(QtW.QTableWidget):
@@ -2254,6 +2276,7 @@ class TranslationDialog(QtW.QDialog):
             :return: dict
             """
             for translation_dict in self.presets:
+                assert isinstance(translation_dict, dict)
                 if translation_dict[TARGET_COLUMN_NAME_KEY] == \
                         target_column_name:  # ^ ???
                     return translation_dict
@@ -2303,6 +2326,10 @@ class TranslationDialog(QtW.QDialog):
                     translation_dicts.remove(dict_)
             return translation_dicts
 
+    # todo: drop-down list of saved translations
+    # todo: save button
+    # todo: load button
+
     @property
     def settings(self):
         """
@@ -2312,7 +2339,7 @@ class TranslationDialog(QtW.QDialog):
         return {COLUMN_TRANSLATIONS_KEY: self.table.settings}
 
 
-class PreliminarySettings(QtW.QDialog):
+class PreliminarySettings(PyLeadDlg):
     class SettingField(QtW.QLineEdit):
         # string appearing next to field in settings table
         side_string = ''  # replaced by child classes
@@ -2499,7 +2526,7 @@ class PreliminarySettings(QtW.QDialog):
 
     def __init__(self, starting_dictionary=None):
         print('Preliminary Dlg began')
-        super().__init__()
+        super().__init__(starting_dictionary)
         # values of fields, may be passed in if user has previously
         # entered settings, or is perhaps loading existing settings
         values = starting_dictionary if starting_dictionary else {}
@@ -2551,7 +2578,6 @@ class PreliminarySettings(QtW.QDialog):
             # field.check_valid displays info dialogs to user
             # if not valid.
             return  # does not move on if any fields are not valid
-        self.setWindowTitle('')  # allow next widget to use the same title
         self.accept()
 
     @property
@@ -2563,13 +2589,12 @@ class PreliminarySettings(QtW.QDialog):
         return {field.dict_string: field.value for field in self.fields}
 
 
-class FinalSettings(QtW.QDialog):
-    def __init__(self, settings):
-        assert isinstance(settings, (dict, Settings)), \
+class FinalSettings(PyLeadDlg):
+    def __init__(self, settings: dict):
+        assert isinstance(settings, dict), \
             'expected dict or Settings, got instead: %s' % settings
         print('Final Settings dlg began')
-        super().__init__()
-        self._settings = settings
+        super().__init__(settings)
 
         field_classes = [
             self.DuplicateActionOption,
@@ -2577,8 +2602,6 @@ class FinalSettings(QtW.QDialog):
         ]
 
         def back():
-            self.setWindowTitle('')  # free up title
-            self.prior_widget.resume()
             self.reject()
 
         layout = ExpandingGridLayout()
