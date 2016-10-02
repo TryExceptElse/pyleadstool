@@ -813,24 +813,6 @@ class Office:
                     reference_row_index=self.reference_row_index
                 )
 
-            @property
-            def columns(self):
-                """
-                yields columns in sheet
-                :return: Columns
-                """
-                for x, cell, in enumerate(self.reference_row):
-                    yield self.get_column(x)
-
-            @property
-            def rows(self):
-                """
-                yields rows in sheet
-                :return: Rows
-                """
-                for y, cell in enumerate(self.reference_column):
-                    yield self.get_column(y)
-
         class Line(Line):
             """
             Contains methods common to both Columns and Rows
@@ -2124,8 +2106,10 @@ class TranslationDialog(QtW.QDialog):
             self.reject()
 
         self.table = self.TranslationTable(
-            self._get_source_columns(),
-            self._get_target_columns())
+            source_sheet=self.source_sheet,
+            target_sheet=self.target_sheet,
+            presets=settings.get(COLUMN_TRANSLATIONS_KEY)
+        )
 
         # build layouts
         main_layout = QtW.QVBoxLayout()
@@ -2136,36 +2120,29 @@ class TranslationDialog(QtW.QDialog):
         main_layout.addItem(confirm_bar)
         self.setLayout(main_layout)
 
-    def _get_source_columns(self):
-        """
-        Returns list of source column names
-        If source column header is empty, that column is not included.
-        :return: list
-        """
-        assert isinstance(self.source_sheet, Sheet)
-        return [cell.string for cell in self.source_sheet.get_row(0)
-                if cell.string]  # include only if header is not empty
-
-    def _get_target_columns(self):
-        """
-        Returns list of target column names
-        :return: list
-        """
-        assert isinstance(self.target_sheet, Sheet)
-        return [cell.value for cell in self.target_sheet.get_row(0)
-                if cell.string]  # include only if header is not empty
-
     class TranslationTable(QtW.QTableWidget):
-        def __init__(self, source_columns, target_columns):
+        def __init__(
+                self,
+                source_sheet: Sheet,
+                target_sheet: Sheet,
+                presets: list=None  # previous column translation dicts
+        ) -> None:
             super().__init__()
-            assert isinstance(source_columns, (list, tuple))
-            assert isinstance(target_columns, (list, tuple))
-            assert all([isinstance(column, (int, float, str))
-                        for column in source_columns])
-            assert all([isinstance(column, (int, float, str))
-                        for column in target_columns])
-            self.source_columns = source_columns
-            self.target_columns = target_columns
+            self.source_sheet = source_sheet
+            self.target_sheet = target_sheet
+            assert isinstance(presets, list) or presets is None, \
+                'Expected presets to be a list or None. Got %s' % presets
+            if presets is not None:
+                assert all([isinstance(item, dict) for item in presets])
+            self.source_columns = [
+                col.name for col in source_sheet.columns
+                if col.name is not None
+            ]
+            self.target_columns = [
+                col.name for col in target_sheet.columns
+                if col.name is not None
+            ]
+            self.presets = presets if presets else []
             self.option_widget_classes = [
                 self.SourceColumnDropDown,
                 self.WhiteSpaceCheckbox,
@@ -2176,15 +2153,30 @@ class TranslationDialog(QtW.QDialog):
         class SourceColumnDropDown(QtW.QComboBox):
             name = 'Source Column'
             dict_name = SOURCE_COLUMN_NAME_KEY
+            default_value = NONE_STRING
 
-            def __init__(self, table, start_value=NONE_STRING):
+            def __init__(self, table, start_value=None):
                 super().__init__()
                 self.table = table
                 self.setToolTip('Select column to use as source')
                 self.addItems(table.source_columns + [NONE_STRING])
+                start_value = self.find_start_value(start_value)
                 self.setCurrentText(start_value)
                 # todo: add margins to text box?
                 # It's rather close to the left side.
+
+            def find_start_value(self, preset: str) -> str:
+                """
+                Finds start value for SourceColumnDropDown.
+                First checks to see if passed preset value is valid,
+                if not, uses default.
+                :param preset: str
+                :return: str
+                """
+                if preset in self.table.source_sheet.columns.names:
+                    return preset
+                else:
+                    return self.default_value
 
             @property
             def value(self):
@@ -2193,13 +2185,16 @@ class TranslationDialog(QtW.QDialog):
         class WhiteSpaceCheckbox(QtW.QCheckBox):
             name = 'Check for Whitespace'
             dict_name = WHITESPACE_CHK_KEY
+            default_value = True
 
-            def __init__(self, table, start_value=True):
+            def __init__(self, table, start_value=None):
                 super().__init__()
                 self.table = table
                 self.setToolTip('Set whether whitespace is checked for in '
                                 'this column')
-                self.setChecked(start_value)
+                if start_value is None:
+                    start_value = self.default_value
+                self.setChecked(start_value)  # set start value
 
             @property
             def value(self):
@@ -2208,13 +2203,16 @@ class TranslationDialog(QtW.QDialog):
         class DuplicateCheckbox(QtW.QCheckBox):
             name = 'Check for Duplicates'
             dict_name = DUPLICATE_CHK_KEY
+            default_value = False
 
-            def __init__(self, table, start_value=False):
+            def __init__(self, table, start_value=None):
                 self.table = table
                 super().__init__()
                 self.setToolTip('Set whether duplicate values are checked for '
                                 'in this column')
-                self.setChecked(start_value)
+                if start_value is None:
+                    start_value = self.default_value
+                self.setChecked(start_value)  # set start value
 
             @property
             def value(self):
@@ -2233,12 +2231,34 @@ class TranslationDialog(QtW.QDialog):
             [self.setHorizontalHeaderItem(x, QtW.QTableWidgetItem(option.name))
              for x, option in enumerate(self.option_widget_classes)]
             # populate table
-            for y in range(len(self.target_columns)):
+            for y, target_column_name in enumerate(self.target_columns):
+                translation_dict = self.find_translation_dict_in_settings(
+                    target_column_name=target_column_name
+                )
                 for x, option_class in enumerate(self.option_widget_classes):
                     self.setCellWidget(y, x, option_class(
-                        table=self  # pass ref to self for use if needed
+                        table=self,
+                        start_value=translation_dict.get(
+                            option_class.dict_name, None
+                        )
                     ))
             self.resizeColumnsToContents()
+
+        def find_translation_dict_in_settings(
+            self,
+            target_column_name: int or float or str
+        ) -> dict:
+            """
+            Finds translation dict for passed column name
+            :param target_column_name: int, float, or str
+            :return: dict
+            """
+            for translation_dict in self.presets:
+                if translation_dict[TARGET_COLUMN_NAME_KEY] == \
+                        target_column_name:  # ^ ???
+                    return translation_dict
+            else:
+                return dict()
 
         @property
         def settings(self):
@@ -2313,9 +2333,10 @@ class PreliminarySettings(QtW.QDialog):
             self.start_str = start_str
             # add default values -before- standard defaults (order matters)
             if default_values:
-                self.default_strings = default_values + tuple(self.defaults)
+                self.default_strings = tuple(default_values) + \
+                                       tuple(self.default_strings)
             # set text to default value
-            self.setText(self._find_default_value())
+            self.setText(str(self._find_default_value()))
             self.gui_setup()
             self.show()
 
@@ -2563,7 +2584,8 @@ class FinalSettings(QtW.QDialog):
         layout = ExpandingGridLayout()
         self.fields = []  # list of fields for user to input/select strings
         for field_class in field_classes:
-            field = field_class()
+            start_val = settings.get(field_class.dict_str)
+            field = field_class(start_value=start_val)
             layout.add_row(field_class.side_string, field)
             self.fields.append(field)
         layout.add_row(BackButton(back), self.ApplyButton(self))
@@ -2788,29 +2810,14 @@ class Files:
         return True
 
 
-class Settings:
+class Settings(dict):
     settings_file_name = 'settings.ser'
 
     def __init__(self, macro_folder):
+        super().__init__()
         print('created settings')
         self.file_path = os.path.join(macro_folder, self.settings_file_name)
-        self._settings_dict = {}
         self.load()
-
-    def __getitem__(self, item):
-        return self._settings_dict[item]
-
-    def __setitem__(self, key, value):
-        self._settings_dict[key] = value
-
-    def __delitem__(self, key):
-        del self._settings_dict[key]
-
-    def __contains__(self, item):
-        return item in self._settings_dict
-
-    def __repr__(self):
-        return 'Settings(%s)' % self._settings_dict
 
     def save(self):
         """
@@ -2818,7 +2825,7 @@ class Settings:
         :return: bool of whether saving was successful
         """
         try:
-            self.saved_settings = self._settings_dict
+            self.saved_settings = self.dict
         except IOError:
             return False
         else:
@@ -2830,22 +2837,13 @@ class Settings:
         :return bool of whether loading was successful
         """
         try:
-            self._settings_dict = self.saved_settings
+            self.clear()
+            self.update(self.saved_settings)
         except IOError:
-            self._settings_dict = {}
+            self.clear()
             return False
         else:
             return True
-
-    def update(self, dict_: dict) -> None:
-        """
-        Updates contained dictionary with key-value pairs from
-        another dict.
-        :param dict_: dict
-        :return: None
-        """
-        assert isinstance(dict_, dict), 'expected dict, got: %s' % dict_
-        self._settings_dict.update(dict_)
 
     def check_settings_dir_exists(self) -> bool:
         """
@@ -2903,6 +2901,15 @@ class Settings:
         else:
             print('Saved Settings:')
             print(new_settings)
+
+    @property
+    def dict(self) -> dict:
+        """
+        Gets plain dict of key/values in self,
+        useful to allow stored data to be pickled more easily.
+        :return: dict
+        """
+        return {key: self[key] for key in self.keys()}
 
 
 def lead_app():
@@ -2977,6 +2984,3 @@ def lead_app():
 # create model handler object and in doing so,
 # check PyUno model is a Workbook
 model = Office.get_model()
-
-if __name__ == '__main__':
-    lead_app()
