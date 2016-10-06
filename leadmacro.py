@@ -46,8 +46,7 @@ Attempting to open two instances of the macro simultaneously will
 freeze both macros and the office program
 
 TODO:
-skip empty column names on import sheet / export sheet
-save/load column source table
+*get translation table starting values from a saved association table
 
 INSTALL:
 for libreoffice, requires python scripts module installed.
@@ -65,6 +64,8 @@ import os
 import platform
 
 APP_FOLDER_NAME = 'leadsmacro'
+SAVED_TRANSLATIONS_FOLDER_NAME = 'saved_translations'
+SERIALIZED_OBJ_SUFFIX = '.pkl'
 
 MAX_CELL_GAP = 10  # max distance between inhabited cells in the workbook
 
@@ -72,7 +73,7 @@ APP_WINDOW_TITLE = 'Lead Macro'
 DEFAULT_WIDGET_X = 512
 DEFAULT_WIDGET_Y = 512
 DEFAULT_WIDGET_H = 512
-DEFAULT_WIDGET_W = 1024
+DEFAULT_WIDGET_W = 524
 DEFAULT_CONTENT_MARGIN_X = 15
 DEFAULT_CONTENT_MARGIN_Y = 5
 
@@ -1311,6 +1312,9 @@ class Translation:
             source_column_name = kwargs_dict.get(SOURCE_COLUMN_NAME_KEY, None)
             target_column_i = kwargs_dict.get(TARGET_COLUMN_INDEX_KEY, None)
             target_column_name = kwargs_dict.get(TARGET_COLUMN_NAME_KEY, None)
+            # if source is null, continue
+            if source_column_i == -1 or source_column_name == NONE_STRING:
+                continue
             if bool(source_column_i) == bool(source_column_name):
                 raise ValueError(
                     'One of source_column_i or source_column_name must '
@@ -2066,13 +2070,16 @@ class PyLeadDlg(QtW.QDialog):
     """
     Abstract class inherited from by other dialogs
     """
+    quit_flag = False
 
     def __init__(self, settings: dict) -> None:
         super().__init__()
         self._initial_settings = settings
 
     def closeEvent(self, event):
-        QtW.QApplication.quit()  # does not need self arg
+        print('closing macro')
+        # noinspection PyArgumentList
+        self.quit_flag = True
 
     @property
     def settings(self) -> dict:
@@ -2116,7 +2123,6 @@ class TranslationDialog(PyLeadDlg):
         self.source_start_row = source_start
         self.target_start_row = target_start
         self.setWindowTitle(APP_WINDOW_TITLE)
-        self.show()
 
         def ok():
             """Function to confirm selections and create Translation"""
@@ -2134,13 +2140,23 @@ class TranslationDialog(PyLeadDlg):
 
         # build layouts
         main_layout = QtW.QVBoxLayout()
+        main_layout.addWidget(self.table)
+        save_and_load_bar = QtW.QHBoxLayout()
+        save_button = QtW.QPushButton('Save Translations')
+        # noinspection PyUnresolvedReferences
+        save_button.clicked.connect(self.save_translations)
+        save_and_load_bar.addWidget(save_button)
+        load_button = QtW.QPushButton('Load Translations')
+        # noinspection PyUnresolvedReferences
+        load_button.clicked.connect(self.load_saved_translations)
+        save_and_load_bar.addWidget(load_button)
+        main_layout.addItem(save_and_load_bar)
         confirm_bar = QtW.QHBoxLayout()
         confirm_bar.addWidget(BackButton(back))
         confirm_bar.addWidget(OkButton(ok))
-        main_layout.addWidget(self.table)
         main_layout.addItem(confirm_bar)
-        # todo: add save/load translation bar
         self.setLayout(main_layout)
+        self.setMinimumWidth(DEFAULT_WIDGET_W)
 
     class TranslationTable(QtW.QTableWidget):
         def __init__(
@@ -2187,18 +2203,23 @@ class TranslationDialog(PyLeadDlg):
                 # todo: add margins to text box?
                 # It's rather close to the left side.
 
-            def find_start_value(self, preset: str) -> str:
+            def find_start_value(self, preset: str=None) -> str:
                 """
                 Finds start value for SourceColumnDropDown.
                 First checks to see if passed preset value is valid,
                 if not, uses default.
-                :param preset: str
+                :param preset: str or None
                 :return: str
                 """
-                if preset in self.table.source_sheet.columns.names:
+                if preset is not None and \
+                        preset in self.table.source_sheet.columns.names or \
+                        preset == self.default_value:
                     return preset
                 else:
-                    return self.default_value
+                    if self.currentText():
+                        return self.currentText()
+                    else:
+                        return self.default_value
 
             @property
             def value(self):
@@ -2252,11 +2273,14 @@ class TranslationDialog(PyLeadDlg):
             # set option column titles
             [self.setHorizontalHeaderItem(x, QtW.QTableWidgetItem(option.name))
              for x, option in enumerate(self.option_widget_classes)]
-            # populate table
+            self.populate_table(self.presets)
+
+        def populate_table(self, translation_dict_list=None):
             for y, target_column_name in enumerate(self.target_columns):
-                translation_dict = self.find_translation_dict_in_settings(
-                    target_column_name=target_column_name
-                )
+                translation_dict = self.find_column_translation_dict(
+                    target_column_name=target_column_name,
+                    translation_dict_list=translation_dict_list
+                )  # todo: get starting values from associations table instead
                 for x, option_class in enumerate(self.option_widget_classes):
                     self.setCellWidget(y, x, option_class(
                         table=self,
@@ -2266,19 +2290,27 @@ class TranslationDialog(PyLeadDlg):
                     ))
             self.resizeColumnsToContents()
 
-        def find_translation_dict_in_settings(
+        def find_column_translation_dict(
             self,
-            target_column_name: int or float or str
+            target_column_name: int or float or str,
+            translation_dict_list: list=None,
         ) -> dict:
             """
             Finds translation dict for passed column name
             :param target_column_name: int, float, or str
+            :param translation_dict_list: list[dict]
             :return: dict
             """
-            for translation_dict in self.presets:
+            assert isinstance(target_column_name, (int, float, str))
+            assert isinstance(translation_dict_list, list) or \
+                translation_dict_list is None
+            if translation_dict_list is None:
+                translation_dict_list = self.presets
+            assert isinstance(translation_dict_list, list)
+            for translation_dict in translation_dict_list:
                 assert isinstance(translation_dict, dict)
                 if translation_dict[TARGET_COLUMN_NAME_KEY] == \
-                        target_column_name:  # ^ ???
+                        target_column_name:
                     return translation_dict
             else:
                 return dict()
@@ -2320,15 +2352,39 @@ class TranslationDialog(PyLeadDlg):
                 )
                 for y, tgt_col_name in enumerate(self.target_columns)
             ]
-            # remove dictionaries whose source is none
-            for dict_ in translation_dicts:
-                if dict_[SOURCE_COLUMN_NAME_KEY] == NONE_STRING:
-                    translation_dicts.remove(dict_)
             return translation_dicts
 
-    # todo: drop-down list of saved translations
-    # todo: save button
-    # todo: load button
+    def save_translations(self) -> None:
+        """
+        raises save dialog to save current translations to a file
+        :return: None
+        """
+        translations = self.table.settings
+        save_dir = OS.get_translations_save_dir_path()
+        SaveTranslationsDlg(
+            obj_to_save=translations,
+            parent=self,
+            saves_dir=save_dir
+        ).exec()
+
+    def load_saved_translations(self) -> None:
+        """
+        raises load dialog to load translations from a file
+        Gets loaded list from dialog and applies it to table.
+        :return: None
+        """
+        print('loading saved translations')
+        saves_dir = OS.get_translations_save_dir_path()
+        load_dlg = LoadTranslationsDlg(
+            parent=self,
+            saves_dir=saves_dir
+        )
+        result = load_dlg.exec()
+        if not result:  # if user has not accepted
+            return
+        # otherwise, get saved translations dict list
+        translations_dicts = load_dlg.load()
+        self.table.populate_table(translations_dicts)
 
     @property
     def settings(self):
@@ -2365,7 +2421,6 @@ class PreliminarySettings(PyLeadDlg):
             # set text to default value
             self.setText(str(self._find_default_value()))
             self.gui_setup()
-            self.show()
 
         def _find_default_value(self):
             raise NotImplementedError  # does nothing here.
@@ -2561,7 +2616,7 @@ class PreliminarySettings(PyLeadDlg):
             grid.add_row(field.side_string, field)
         # add ok and cancel buttons
 
-        grid.add_row(self.CancelButton(lambda: self.reject()),
+        grid.add_row(self.CancelButton(self.reject),
                      OkButton(self._ok))
         # todo: limit / freeze size of window
         self.setWindowTitle(APP_WINDOW_TITLE)
@@ -2614,7 +2669,6 @@ class FinalSettings(PyLeadDlg):
         layout.add_row(BackButton(back), self.ApplyButton(self))
         self.setLayout(layout)
         self.setWindowTitle(APP_WINDOW_TITLE)
-        self.show()
 
     class ApplyButton(QtW.QPushButton):
         def __init__(self, host):
@@ -2672,6 +2726,211 @@ class FinalSettings(PyLeadDlg):
         :return: dict
         """
         return {option.dict_str: option.value for option in self.fields}
+
+# SAVE / LOAD dlg
+
+
+class FileDlg(QtW.QDialog):
+    """
+    Superclass for SaveDlg and LoadDlg.
+    In this class, the save folder and its contents are found and
+    prepared for use by subclass methods.
+    """
+    title = 'placeholder, replaced by subclasses'
+
+    def __init__(self, parent: QtW.QWidget, saves_dir: str) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(self.title)
+        self.setModal(True)
+        self.setFocus()
+        assert isinstance(saves_dir, str), 'expected str, got %s' % saves_dir
+        self.saves_dir_path = saves_dir
+        if not OS.check_file_path_exists(saves_dir):
+            print('%s could not find path %s and failed to create it.' %
+                  (self.__class__.__name__, saves_dir))
+            msg = QtW.QMessageBox(
+                QtW.QMessageBox.Information,  # icon
+                'Could not find saved files',  # title
+                'Could not find or create saved translations directory %s'
+                % saves_dir
+            )
+            msg.exec()
+            self.close()
+
+    def get_save_file_names(self) -> set:
+        """
+        Gets list of files in saves dir
+        :return: set[str]
+        """
+        try:
+            return set([
+                os.path.splitext(file_name)[0] for file_name in
+                os.listdir(OS.get_translations_save_dir_path())
+            ])
+        except IOError:
+            print('could not get saved files in directory: %s'
+                  % self.saves_dir_path)
+            print(sys.exc_info())
+            return set()
+
+
+class SaveTranslationsDlg(FileDlg):
+    """
+    Dialog handling saving column translations dict to file
+    """
+    title = 'Save Column Settings'
+
+    def __init__(
+            self,
+            obj_to_save: object,
+            parent: QtW.QWidget,
+            saves_dir: str
+    ) -> None:
+        print('Save dialog initialization began')
+        super().__init__(parent, saves_dir)
+        self.obj_to_save = obj_to_save
+        grid = ExpandingGridLayout()
+        self.file_name_entry_field = QtW.QLineEdit()
+        self.file_name_entry_field.setToolTip(
+            'Enter name to save translations as')
+        self.accept_button = QtW.QPushButton('Save')
+        # noinspection PyUnresolvedReferences
+        self.accept_button.clicked.connect(self.save)  # not an error
+        self.cancel_button = QtW.QPushButton('Cancel')
+        # noinspection PyUnresolvedReferences
+        self.cancel_button.clicked.connect(self.reject)  # not an error
+        grid.add_row(self.file_name_entry_field)
+        grid.add_row(self.accept_button, self.cancel_button)
+        self.setLayout(grid)
+        self.exec()
+
+    def save(self):
+        file_name = self.file_name_entry_field.text()
+        # if file_name would overwrite an existing file,
+        # get user confirmation
+        if file_name in self.get_save_file_names() and \
+                not self.confirm_overwrite(file_name):
+            return
+        # write file
+        save_file_path = os.path.join(self.saves_dir_path, file_name) + \
+            SERIALIZED_OBJ_SUFFIX
+        try:
+            with open(save_file_path, 'wb') as save_file:
+                pickle.dump(self.obj_to_save, save_file)
+        except IOError:
+            print('saving %s to file: %s failed.'
+                  % (self.obj_to_save, save_file_path))
+            print(sys.exc_info())
+        print('save accepted')
+        self.close()
+
+    def confirm_overwrite(self, file_name):
+        reply = QtW.QMessageBox.question(
+            self,
+            'Overwrite File?',
+            'A file named %s already exists, overwrite it?' % file_name,
+            QtW.QMessageBox.Yes | QtW.QMessageBox.Cancel,
+            QtW.QMessageBox.Cancel
+        )
+        return reply == QtW.QMessageBox.Yes
+
+
+class LoadTranslationsDlg(FileDlg):
+    """
+    Dialog handling loading of column translations dict from file
+    """
+    title = 'Load Saved Movements'
+
+    def __init__(self, parent: QtW.QWidget, saves_dir: str) -> None:
+        print('Load Translations Dialog initialization began')
+        super().__init__(parent, saves_dir)
+        grid = ExpandingGridLayout()
+        self.file_selection_field = QtW.QComboBox()
+        self.populate_file_selection_field()
+        self.file_selection_field.setToolTip('Select save to load')
+        self.file_selection_field.setCurrentText('Select save')
+        self.delete_button = QtW.QPushButton('Delete Save')
+        self.cancel_button = QtW.QPushButton('Cancel')
+        self.accept_button = QtW.QPushButton('Load')
+        # noinspection PyUnresolvedReferences
+        self.delete_button.clicked.connect(self.delete)
+        # noinspection PyUnresolvedReferences
+        self.cancel_button.clicked.connect(self.reject)
+        # noinspection PyUnresolvedReferences
+        self.accept_button.clicked.connect(self.accept)
+        grid.add_row(self.file_selection_field, self.delete_button)
+        grid.add_row(self.cancel_button, self.accept_button)
+        self.setLayout(grid)
+        self.exec()
+
+    def populate_file_selection_field(self):
+        self.file_selection_field.clear()
+        self.file_selection_field.addItems(
+            list(self.get_save_file_names()).sort()
+        )
+
+    def delete(self) -> bool:
+        """
+        Deletes selected file. Returns bool of whether delete was successful.
+        :return: bool
+        """
+        # first get confirmation
+        # then delete file
+        file_name = self.file_selection_field.currentText()
+        if file_name == '':
+            return
+        file_path = os.path.join(
+            OS.get_translations_save_dir_path(),
+            file_name) + SERIALIZED_OBJ_SUFFIX
+        try:
+            os.remove(file_path)
+            self.populate_file_selection_field()  # update
+            return True
+        except IOError:
+            print('could not delete file %s' % file_path)
+            print(sys.exc_info())
+            msg = QtW.QMessageBox(
+                QtW.QMessageBox.Information,  # icon
+                'Delete Failed',  # title
+                'Could not delete file %s' % file_path,  # body
+            )
+            print('file path: %s' % file_path)
+            print('file path type: %s' % file_path.__class__.__name__)
+            print('file path str: %s' % str(file_path))
+            print('file path repr: %s' % repr(file_path))
+            msg.setDetailedText('\n'.join([str(i) for i in sys.exc_info()]))
+            msg.exec()
+            return False
+
+    def load(self) -> list:
+        """
+        loads column translations from save file.
+        returns list of column translation dicts
+        :return: list[dict]
+        """
+        file_name = self.file_selection_field.currentText()
+        file_path = os.path.join(
+            OS.get_translations_save_dir_path(), file_name) + \
+            SERIALIZED_OBJ_SUFFIX
+        try:
+            with open(file_path, 'rb') as file:
+                translations_list = pickle.load(file)
+            if not isinstance(translations_list, list) or \
+                    not all([isinstance(i, dict) for i in translations_list]):
+                raise TypeError('expected list of dicts, got %s'
+                                % translations_list)
+            return translations_list
+        except IOError:
+            print('Could not load from file path: %s' % file_path)
+            print(sys.exc_info())
+            msg = QtW.QMessageBox(
+                QtW.QMessageBox.Information,  # icon
+                'Loading Failed',  # title
+                'Could not load column translations from file',  # msg
+            )
+            msg.setDetailedText('\n'.join([str(i) for i in sys.exc_info()]))
+            msg.exec()
+            return []
 
 
 class InfoMessage(QtW.QMessageBox):
@@ -2800,19 +3059,23 @@ class OS:
         return os.path.join(app_folder_path, APP_FOLDER_NAME)
 
     @staticmethod
-    def _get_mac_data_path():
+    def _get_mac_data_path() -> str:
         """
         Gets data folder path for macro on Mac system.
         :return: str path
         """
         raise NotImplementedError('have not yet set up mac path')
 
-
-class Files:
-    """
-    Handles retrieval and use of macro's files
-    """
-    file_creation_permission = False
+    @staticmethod
+    def get_translations_save_dir_path() -> str:
+        """
+        Gets path to folder where translations are saved.
+        :return:
+        """
+        return os.path.join(
+            OS.get_app_data_path(),
+            SAVED_TRANSLATIONS_FOLDER_NAME
+        )
 
     @staticmethod
     def check_file_path_exists(file_path: str) -> bool:
@@ -2876,7 +3139,7 @@ class Settings(dict):
         """
         settings_dir = os.path.dirname(self.file_path)
         print('checking settings dir \'%s\' exists' % settings_dir)
-        return Files.check_file_path_exists(settings_dir)
+        return OS.check_file_path_exists(settings_dir)
 
     @property
     def saved_settings(self) -> dict:
@@ -2948,62 +3211,58 @@ def lead_app():
     # close / display exit message
     print('\nstarted pyleadsmacro')
     print('Python version %s.%s.%s %s. serial: %s' % sys.version_info)
-    app = QtW.QApplication([''])  # expects list of strings.
     print('started app')
 
-    try:
-        # get settings
-        settings = Settings(OS.get_app_data_path())
-        # get settings from prelim dialog
-        run = True
-        step = 0
+    # get settings
+    settings = Settings(OS.get_app_data_path())
+    # get settings from prelim dialog
+    run = True
+    step = 0
 
-        dialog_classes = [
-            PreliminarySettings,
-            TranslationDialog,
-            FinalSettings
-        ]
-        while run:
-            dlg = dialog_classes[step](settings)  # create dlg for current step
-            result = dlg.exec_()  # run dlg and get result.
-            settings.update(dlg.settings)
-            if result:  # if user accepted, go to next step
-                step += 1
-            else:  # otherwise, go back.
-                step -= 1
-            if step < 0:  # if user has cancelled out of first dlg
-                run = False
-            elif step >= len(dialog_classes):  # if user has accepted last dlg
-                break
+    dialog_classes = [
+        PreliminarySettings,
+        TranslationDialog,
+        FinalSettings
+    ]
+    while run:
+        dlg = dialog_classes[step](settings)  # create dlg for current step
+        result = dlg.exec_()  # run dlg and get result.
+        settings.update(dlg.settings)
+        if dlg.quit_flag:
+            run = False
+        if result:  # if user accepted, go to next step
+            step += 1
+        else:  # otherwise, go back.
+            step -= 1
+        if step < 0:  # if user has cancelled out of first dlg
+            run = False
+        elif step >= len(dialog_classes):  # if user has accepted last dlg
+            break
 
-        if run:  # if run is still ongoing
-            translation = Translation(  # create translation
-                source_sheet=model[settings[SOURCE_SHEET_KEY]],
-                target_sheet=model[settings[TARGET_SHEET_KEY]],
-                source_start_row=settings[SOURCE_START_KEY],
-                target_start_row=settings[TARGET_START_KEY],
-                column_translations=settings[COLUMN_TRANSLATIONS_KEY],
-                dialog_parent=dlg,  # there's no way for this to be reached
-                #  without dlg being assigned.
-                duplicate_action=settings[DUPLICATE_ACTION_KEY],
-                whitespace_action=settings[WHITESPACE_ACTION_KEY]
-            )
-            translation.commit()  # move cell values
+    if run:  # if run is still ongoing
+        translation = Translation(  # create translation
+            source_sheet=model[settings[SOURCE_SHEET_KEY]],
+            target_sheet=model[settings[TARGET_SHEET_KEY]],
+            source_start_row=settings[SOURCE_START_KEY],
+            target_start_row=settings[TARGET_START_KEY],
+            column_translations=settings[COLUMN_TRANSLATIONS_KEY],
+            dialog_parent=dlg,  # there's no way for this to be reached
+            #  without dlg being assigned.
+            duplicate_action=settings[DUPLICATE_ACTION_KEY],
+            whitespace_action=settings[WHITESPACE_ACTION_KEY]
+        )
+        translation.commit()  # move cell values
 
-            InfoMessage(  # tell user translation has been applied
-                parent=dlg,
-                title='Macro Finished',
-                main='Finished moving cell values'
-            )
+        InfoMessage(  # tell user translation has been applied
+            parent=dlg,
+            title='Macro Finished',
+            main='Finished moving cell values'
+        )
 
-        settings.save()  # save settings for next run
-    except SystemExit:
-        print('SystemExit raised')
-        print('Exited macro')
-        app.quit()
-        # let macro exit without displaying an error
+    settings.save()  # save settings for next run
 
 
 # create model handler object and in doing so,
 # check PyUno model is a Workbook
 model = Office.get_model()
+app = QtW.QApplication([''])  # expects list of strings.
