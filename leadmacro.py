@@ -55,13 +55,13 @@ in ubuntu, this can be installed via
 
 """
 
-import pickle
-
 import PyQt5.QtWidgets as QtW
 
 import sys
 import os
 import platform
+import collections
+import pickle
 
 APP_FOLDER_NAME = 'leadsmacro'
 SAVED_TRANSLATIONS_FOLDER_NAME = 'saved_translations'
@@ -2168,6 +2168,7 @@ class TranslationDialog(PyLeadDlg):
             super().__init__()
             self.source_sheet = source_sheet
             self.target_sheet = target_sheet
+            self.associations = Associations()
             assert isinstance(presets, list) or presets is None, \
                 'Expected presets to be a list or None. Got %s' % presets
             if presets is not None:
@@ -3097,12 +3098,15 @@ class OS:
 
 
 class Settings(dict):
-    settings_file_name = 'settings.ser'
+    settings_file_name = 'settings'
 
     def __init__(self, macro_folder):
         super().__init__()
         print('created settings')
-        self.file_path = os.path.join(macro_folder, self.settings_file_name)
+        self.file_path = os.path.join(
+            macro_folder,
+            self.settings_file_name + SERIALIZED_OBJ_SUFFIX
+        )
         self.load()
 
     def save(self):
@@ -3196,6 +3200,151 @@ class Settings(dict):
         :return: dict
         """
         return {key: self[key] for key in self.keys()}
+
+
+class Associations:
+    """
+    Stores table of associations for each target column.
+    For a given target column name, stores names of source
+    columns from which data has been retrieved.
+    This is intended to be used to auto-fill translation table
+    entries.
+    """
+    _assoc_deque = collections.deque()
+    association_table_file_name = 'associations'
+    max_source_entries = 1000
+
+    def __init__(self, file_path: str=None):
+        if file_path is None:
+            # if no file_path is passed, create default path.
+            file_path = os.path.join(
+                OS.get_app_data_path(),
+                self.association_table_file_name,
+                SERIALIZED_OBJ_SUFFIX
+            )
+        if not isinstance(file_path, str):
+            raise TypeError('passed file_path must be a str. Got: %s'
+                            % file_path)
+        self._file_path = file_path
+        self.load_file_path(self._file_path)
+        self.unmapped_index = 0  # first unmapped assoc in deque
+        # modified since last access
+        self._assoc_dict = {}
+
+    def __getitem__(self, key):
+        """
+        Gets values associated with a passed key
+        :param key: object
+        :return: object
+        """
+        # this method implementation delays mapping of values to the last
+        # possible moment, only mapping values in the deque when
+        # __getitem__ is called, and then only mapping as required to yield
+        # values. If only the first yielded value is needed, no more
+        # associations are mapped.
+        # first yield each value that has been mapped
+        for value in self._assoc_dict[key]:
+            yield value
+        # then look for additional values if any remain
+        if self.unmapped_index < len(self._assoc_deque):
+            for assoc in self._assoc_deque[self.unmapped_index:]:
+                self._map_assoc(assoc)
+                if assoc[0] == key:
+                    yield assoc[1]
+
+    def load_file_path(self, file_path: str):
+        if not isinstance(file_path, str):
+            raise TypeError('file_path must be str. Got: %s' % file_path)
+        assoc_deque = None
+        try:
+            with open(file_path, 'rb') as assoc_file:
+                assoc_deque = pickle.load(assoc_file)
+        except IOError:
+            print('could not load assoc file.')
+            print('\n'.join([str(i) for i in sys.exc_info()]))
+        if not all([isinstance(value, list) for value in assoc_deque.values()]):
+            print('Association dict values are not all lists. Got %s.')
+        if assoc_deque is not None:
+            self._assoc_deque = assoc_deque
+            self.unmapped_index = 0  # reset counter
+
+    def save(self, file_path: str=None) -> bool:
+        """
+        Saves associations to a file.
+        Returns bool of whether save was successful.
+        :param file_path: file path to save to. If not passed, uses default
+        :return: bool
+        """
+        self.clean()  # clean extra associations before saving
+        if file_path is None:
+            file_path = self._file_path
+        elif not isinstance(file_path, str):
+            raise TypeError('file_path should be a str. Got: %s' % file_path)
+        try:
+            with open(file_path, 'wb') as assoc_file:
+                pickle.dump(self.assoc_deque, assoc_file)
+        except IOError:
+            print('could not save associations to file')
+            print('\n'.join([str(i) for i in sys.exc_info()]))
+            return False
+        else:
+            return True
+
+    def add_assoc(self, key: object, value: object):
+        """
+        Associates value with key.
+        :param key: object
+        :param value: object
+        :return: None
+        """
+        new_assoc = (key, value)
+        self._assoc_deque.appendleft(new_assoc)
+        self._map_assoc(new_assoc)
+
+    def _map_assoc(self, association: tuple):
+        """
+        Adds association to dictionary of associations
+        :param association: tuple
+        """
+        assert isinstance(association, tuple)
+        try:
+            self._assoc_dict[association[0]].append(association[1])
+        except KeyError:
+            self._assoc_dict[association[0]] = [association[1]]
+        self.unmapped_index += 1  # increment counter
+
+    def clean(self, force: bool or int=False) -> int:
+        """
+        Cleans AssociationMap of old associations.
+        Returns integer of number of associations removed.
+        :param force: int of number of items to remove.
+            if 0 or False, removes only enough to reach limit
+            if 1 or True, removes only the oldest association.
+        :return: int
+        """
+        n_removed = 0
+        if force is True:
+            force = 1
+        elif force is False:
+            force = 0
+        if not force:
+            target_n = self.max_source_entries  # number to reduce to
+        else:
+            target_n = self._assoc_deque - force
+        while len(self._assoc_deque) > target_n:
+            del self._assoc_deque[-1]  # delete last entry
+            n_removed += 1
+        self.unmapped_index = 0  # reset counter
+        return n_removed
+
+    @property
+    def assoc_deque(self):
+        """
+        Yields associations deck
+        Written to be used when cleaning AssociationMap of old values.
+        :return: deque
+        """
+        return self._assoc_deque
 
 
 def lead_app():
