@@ -2076,6 +2076,13 @@ class PyLeadDlg(QtW.QDialog):
         super().__init__()
         self._initial_settings = settings
 
+    def finish(self) -> None:
+        """
+        method called when caller is done with dlg.
+        :return: None
+        """
+        # inherited by child classes
+
     def closeEvent(self, event):
         print('closing macro')
         # noinspection PyArgumentList
@@ -2168,16 +2175,16 @@ class TranslationDialog(PyLeadDlg):
             super().__init__()
             self.source_sheet = source_sheet
             self.target_sheet = target_sheet
-            self.associations = Associations()
+            self.col_assoc = Associations()
             assert isinstance(presets, list) or presets is None, \
                 'Expected presets to be a list or None. Got %s' % presets
             if presets is not None:
                 assert all([isinstance(item, dict) for item in presets])
-            self.source_columns = [
+            self.src_col_names = [
                 col.name for col in source_sheet.columns
                 if col.name is not None
             ]
-            self.target_columns = [
+            self.tgt_col_names = [
                 col.name for col in target_sheet.columns
                 if col.name is not None
             ]
@@ -2198,7 +2205,7 @@ class TranslationDialog(PyLeadDlg):
                 super().__init__()
                 self.table = table
                 self.setToolTip('Select column to use as source')
-                self.addItems(table.source_columns + [NONE_STRING])
+                self.addItems(table.src_col_names + [NONE_STRING])
                 start_value = self.find_start_value(start_value)
                 self.setCurrentText(start_value)
                 # todo: add margins to text box?
@@ -2264,24 +2271,25 @@ class TranslationDialog(PyLeadDlg):
 
         def draw_table(self):
             """Draws table, populates columns, sets visual settings"""
-            self.setRowCount(len(self.target_columns))
+            self.setRowCount(len(self.tgt_col_names))
             # set columns to number of options for each column
             self.setColumnCount(len(self.option_widget_classes))
             self.setAlternatingRowColors(True)
             # set row titles
             [self.setVerticalHeaderItem(y, QtW.QTableWidgetItem(column)) for
-             y, column in enumerate(self.target_columns)]
+             y, column in enumerate(self.tgt_col_names)]
             # set option column titles
             [self.setHorizontalHeaderItem(x, QtW.QTableWidgetItem(option.name))
              for x, option in enumerate(self.option_widget_classes)]
             self.populate_table(self.presets)
+            self.auto_fill()  # attempt to fill in cells left empty by presets
 
         def populate_table(self, translation_dict_list=None):
-            for y, target_column_name in enumerate(self.target_columns):
+            for y, target_column_name in enumerate(self.tgt_col_names):
                 translation_dict = self.find_column_translation_dict(
                     target_column_name=target_column_name,
                     translation_dict_list=translation_dict_list
-                )  # todo: get starting values from associations table instead
+                )
                 for x, option_class in enumerate(self.option_widget_classes):
                     self.setCellWidget(y, x, option_class(
                         table=self,
@@ -2290,6 +2298,61 @@ class TranslationDialog(PyLeadDlg):
                         )
                     ))
             self.resizeColumnsToContents()
+
+        def auto_fill(self) -> None:
+            """
+            Attempts to fill all unfilled source column fields using
+            previously entered values for the same target column name.
+            As currently written, this method assumes that the target
+            column name resides at index 0 of
+            :return: None
+            """
+            y = 0
+            x = self.get_option_index(self.SourceColumnDropDown)
+            filled_tgt_columns = []
+            while True:  # iterate over rows in table
+                tgt_row_name = self.horizontalHeaderItem(y)
+                # this returns None if invalid index is passed.
+                if tgt_row_name is None:
+                    break
+                assert isinstance(tgt_row_name, QtW.QTableWidgetItem), \
+                    "Got: %s" % tgt_row_name
+                tgt_row_name = tgt_row_name.text()
+                drop_down_menu = self.cellWidget(y, x)
+                assert isinstance(
+                    drop_down_menu, self.SourceColumnDropDown), \
+                    "got: %s" % drop_down_menu
+                assert isinstance(drop_down_menu.value, str), "got: %s" % \
+                    drop_down_menu.value
+                if drop_down_menu.value != NONE_STRING:
+                    for src_col_name in self.col_assoc[tgt_row_name]:
+                        if src_col_name in self.src_col_names:
+                            drop_down_menu.setCurrentText(src_col_name)
+                            filled_tgt_columns.append(tgt_row_name)
+                y += 1
+            msg = QtW.QMessageBox()
+            msg.setDetailedText(
+                "The following target columns have been autofilled:\n%s"
+                % '\n'.join(filled_tgt_columns)
+            )
+            msg.setWindowTitle("Auto-Filled Columns")
+            msg.setModal(True)
+            msg.setText("One or more columns have been automatically filled"
+                        "based on previous selections.\n"
+                        "Please ensure all auto-filled columns are correct.")
+
+        def store_col_associations(self) -> bool:
+            """
+            Stores associations made in table into associations obj and
+            saves them.
+            :return: bool
+            """
+            [self.col_assoc.add_assoc(
+                translation_dict[TARGET_COLUMN_NAME_KEY],
+                translation_dict[SOURCE_COLUMN_NAME_KEY]
+            ) for translation_dict in self.settings]
+            return self.col_assoc.save()  # return bool returned by save()
+            # indicating whether save was successful.
 
         def find_column_translation_dict(
             self,
@@ -2315,6 +2378,11 @@ class TranslationDialog(PyLeadDlg):
                     return translation_dict
             else:
                 return dict()
+
+        def get_option_index(self, option) -> int:
+            for i, option_class in enumerate(self.option_widget_classes):
+                if option is option_class:
+                    return i
 
         @property
         def settings(self):
@@ -2351,7 +2419,7 @@ class TranslationDialog(PyLeadDlg):
                         TARGET_COLUMN_NAME_KEY: tgt_col_name
                     }
                 )
-                for y, tgt_col_name in enumerate(self.target_columns)
+                for y, tgt_col_name in enumerate(self.tgt_col_names)
             ]
             return translation_dicts
 
@@ -2386,6 +2454,9 @@ class TranslationDialog(PyLeadDlg):
         # otherwise, get saved translations dict list
         translations_dicts = load_dlg.load()
         self.table.populate_table(translations_dicts)
+
+    def finish(self):
+        self.table.store_col_associations()
 
     @property
     def settings(self):
@@ -3219,8 +3290,7 @@ class Associations:
             # if no file_path is passed, create default path.
             file_path = os.path.join(
                 OS.get_app_data_path(),
-                self.association_table_file_name,
-                SERIALIZED_OBJ_SUFFIX
+                self.association_table_file_name + SERIALIZED_OBJ_SUFFIX
             )
         if not isinstance(file_path, str):
             raise TypeError('passed file_path must be a str. Got: %s'
@@ -3243,14 +3313,15 @@ class Associations:
         # values. If only the first yielded value is needed, no more
         # associations are mapped.
         # first yield each value that has been mapped
-        for value in self._assoc_dict[key]:
+        for value in self._assoc_dict.get(key, []):  # default to an empty list
             yield value
         # then look for additional values if any remain
-        if self.unmapped_index < len(self._assoc_deque):
-            for assoc in self._assoc_deque[self.unmapped_index:]:
-                self._map_assoc(assoc)
-                if assoc[0] == key:
-                    yield assoc[1]
+        while self.unmapped_index < len(self._assoc_deque):
+            assoc = self._assoc_deque[self.unmapped_index]
+            assert isinstance(assoc, tuple), "Got: %s" % repr(assoc)
+            self._map_assoc(assoc)
+            if assoc[0] == key:
+                yield assoc[1]
 
     def load_file_path(self, file_path: str):
         if not isinstance(file_path, str):
@@ -3262,9 +3333,13 @@ class Associations:
         except IOError:
             print('could not load assoc file.')
             print('\n'.join([str(i) for i in sys.exc_info()]))
-        if not all([isinstance(value, list) for value in assoc_deque.values()]):
-            print('Association dict values are not all lists. Got %s.')
         if assoc_deque is not None:
+            assert isinstance(assoc_deque, collections.deque), \
+                "got: %s" % assoc_deque
+            if not all([isinstance(value, tuple) for value in
+                        assoc_deque]):
+                raise ValueError(
+                    'Association dict values are not all lists. Got %s.')
             self._assoc_deque = assoc_deque
             self.unmapped_index = 0  # reset counter
 
@@ -3297,7 +3372,8 @@ class Associations:
         :param value: object
         :return: None
         """
-        new_assoc = (key, value)
+        new_assoc = key, value
+        assert isinstance(new_assoc, tuple)
         self._assoc_deque.appendleft(new_assoc)
         self._map_assoc(new_assoc)
 
@@ -3306,7 +3382,7 @@ class Associations:
         Adds association to dictionary of associations
         :param association: tuple
         """
-        assert isinstance(association, tuple)
+        assert isinstance(association, tuple), "Got: %s" % repr(association)
         try:
             self._assoc_dict[association[0]].append(association[1])
         except KeyError:
@@ -3330,12 +3406,20 @@ class Associations:
         if not force:
             target_n = self.max_source_entries  # number to reduce to
         else:
-            target_n = self._assoc_deque - force
+            target_n = len(self._assoc_deque) - force
         while len(self._assoc_deque) > target_n:
             del self._assoc_deque[-1]  # delete last entry
             n_removed += 1
         self.unmapped_index = 0  # reset counter
         return n_removed
+
+    def values(self):
+        """
+        Returns iterator of associations made, regardless of key
+        :return:
+        """
+        for entry in self._assoc_deque:
+            return entry[1]
 
     @property
     def assoc_deque(self):
@@ -3377,6 +3461,7 @@ def lead_app():
         dlg = dialog_classes[step](settings)  # create dlg for current step
         result = dlg.exec_()  # run dlg and get result.
         settings.update(dlg.settings)
+        dlg.finish()
         if dlg.quit_flag:
             run = False
         if result:  # if user accepted, go to next step
