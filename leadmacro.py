@@ -2430,11 +2430,27 @@ class TranslationDialog(PyLeadDlg):
         """
         translations = self.table.settings
         save_dir = OS.get_translations_save_dir_path()
-        SaveTranslationsDlg(
+        save_dlg = SaveTranslationsDlg(
             obj_to_save=translations,
             parent=self,
             saves_dir=save_dir
-        ).exec()
+        )
+        result = save_dlg.exec()
+        if not result:
+            return
+        # write file
+        save_file_path = os.path.join(
+            self.saves_dir_path,
+            save_dlg.file_name_entry_field.text()) + \
+            SERIALIZED_OBJ_SUFFIX
+        try:
+            with open(save_file_path, 'wb') as save_file:
+                pickle.dump(self.obj_to_save, save_file)
+        except IOError:
+            print('saving %s to file: %s failed.'
+                  % (self.obj_to_save, save_file_path))
+            print(sys.exc_info())
+        print('save accepted')
 
     def load_saved_translations(self) -> None:
         """
@@ -2877,24 +2893,17 @@ class SaveTranslationsDlg(FileDlg):
         self.exec()
 
     def save(self):
+        """
+        Saves translations to file
+        :return: None
+        """
         file_name = self.file_name_entry_field.text()
         # if file_name would overwrite an existing file,
         # get user confirmation
         if file_name in self.get_save_file_names() and \
                 not self.confirm_overwrite(file_name):
             return
-        # write file
-        save_file_path = os.path.join(self.saves_dir_path, file_name) + \
-            SERIALIZED_OBJ_SUFFIX
-        try:
-            with open(save_file_path, 'wb') as save_file:
-                pickle.dump(self.obj_to_save, save_file)
-        except IOError:
-            print('saving %s to file: %s failed.'
-                  % (self.obj_to_save, save_file_path))
-            print(sys.exc_info())
-        print('save accepted')
-        self.close()
+        self.accept()
 
     def confirm_overwrite(self, file_name):
         reply = QtW.QMessageBox.question(
@@ -2937,8 +2946,10 @@ class LoadTranslationsDlg(FileDlg):
 
     def populate_file_selection_field(self):
         self.file_selection_field.clear()
+        file_names = list(self.get_save_file_names())
+        file_names.sort()
         self.file_selection_field.addItems(
-            list(self.get_save_file_names()).sort()
+            file_names
         )
 
     def delete(self) -> bool:
