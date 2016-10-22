@@ -49,7 +49,6 @@ KNOWN BUGS:
 
 
 TODO:
-*get translation table starting values from a saved association table
 
 INSTALL:
 for libreoffice, requires python scripts module installed.
@@ -808,9 +807,22 @@ class Office:
                 :param sheet_name: str
                 :return: bool
                 """
-                for book in self.books:
-                    if sheet_name in book.Sheets:
+                if "::" in sheet_name:
+                    # if book/sheet name separator is in sheet_name,
+                    # first find the book, then sheet
+                    book_name, sheet_name = sheet_name.split("::")
+                    try:
+                        book = self.active_app.books[book_name]
+                        sheet = book.sheets[sheet_name]
+                    except KeyError:
+                        return False
+                    else:
                         return True
+                else:
+                    # otherwise just find the sheet name
+                    for book in self.books:
+                        if sheet_name in book.Sheets:
+                            return True
 
             def __getitem__(self, item: str or int):
                 """
@@ -818,9 +830,17 @@ class Office:
                 :param item:
                 :return: Sheet
                 """
-                for book in self.books:
-                    if item in book.Sheets:
-                        return Office.XW.Sheet(book.Sheets[item])
+                if isinstance(item, str) and "::" in item:
+                    # split and find book + name
+                    book_name, sheet_name = item.split("::")
+                    return Office.XW.Sheet(
+                        self.active_app[book_name].sheets[sheet_name]
+                    )
+                else:
+                    # otherwise just look everywhere
+                    for book in self.books:
+                        if item in book.Sheets:
+                            return Office.XW.Sheet(book.Sheets[item])
 
             @property
             def books(self):
@@ -2676,6 +2696,10 @@ class TranslationDialog(PyLeadDlg):
 
 
 class PreliminarySettings(PyLeadDlg):
+    """
+    Settings Dlg that gets src and target sheet, and any information
+    about them that is required before creating the translations dlg.
+    """
     class SettingField(QtW.QLineEdit):
         # string appearing next to field in settings table
         side_string = ''  # replaced by child classes
@@ -2683,24 +2707,6 @@ class PreliminarySettings(PyLeadDlg):
         dict_string = ''  # replaced by child classes
         # values to default to, in order of priority
         default_strings = tuple()  # replaced by child classes
-
-        def __init__(self, start_str='', default_values=None):
-            assert isinstance(start_str, str), \
-                'Expected start_str to be str, instead %s was passed %s.' \
-                % (self.__class__.__name__, start_str)
-            assert default_values is None or \
-                isinstance(default_values, (tuple, list)), \
-                '%s __init__ was passed %s for default_values. ' \
-                'That should not be' % (self.__name__, default_values)
-            super().__init__()
-            self.start_str = start_str
-            # add default values -before- standard defaults (order matters)
-            if default_values:
-                self.default_strings = tuple(default_values) + \
-                                       tuple(self.default_strings)
-            # set text to default value
-            self.setText(str(self._find_default_value()))
-            self.gui_setup()
 
         def _find_default_value(self):
             raise NotImplementedError  # does nothing here.
@@ -2711,7 +2717,27 @@ class PreliminarySettings(PyLeadDlg):
         def check_valid(self):
             pass  # inherited
 
-    class SheetField(SettingField):
+    class SheetField(QtW.QComboBox, SettingField):
+        def __init__(self, start_str='', default_values=None):
+            assert isinstance(start_str, str), \
+                'Expected start_str to be str, instead %s was passed %s.' \
+                % (self.__class__.__name__, start_str)
+            assert default_values is None or \
+                isinstance(default_values, (tuple, list)), \
+                '%s __init__ was passed %s for default_values. ' \
+                'That should not be' % (self.__name__, default_values)
+            super().__init__()
+            self.start_str = start_str
+            # add items to drop-down-menu
+            self.addItems(model.sheet_names)
+            # add default values -before- standard defaults (order matters)
+            if default_values:
+                self.default_strings = tuple(default_values) + \
+                                       tuple(self.default_strings)
+            # set text to default value
+            self.setText(str(self._find_default_value()))
+            self.gui_setup()
+
         def _find_default_value(self):
             # find default value
             if self.start_str:  # if a starting string has been passed,
@@ -2726,12 +2752,19 @@ class PreliminarySettings(PyLeadDlg):
                 else:
                     return ''
 
+        def gui_setup(self):
+            pass  # does nothing here, inherited by child classes
+
+        def check_valid(self):
+            pass  # inherited
+
         @property
         def value(self):
-            return self.text()
+            return self.currentText()
 
     class ImportSheetField(SheetField):
         """Gets name of sheet to import from"""
+
         dict_string = SOURCE_SHEET_KEY
         side_string = 'Import sheet name'
         default_strings = 'import', 'Sheet1', 'sheet1'
@@ -2794,8 +2827,26 @@ class PreliminarySettings(PyLeadDlg):
                               sheet_name
                 )
 
-    class StartLineField(SettingField):
+    class StartLineField(QtW.QTextEdit, SettingField):
         default_strings = '1',
+
+        def __init__(self, start_str='', default_values=None):
+            assert isinstance(start_str, str), \
+                'Expected start_str to be str, instead %s was passed %s.' \
+                % (self.__class__.__name__, start_str)
+            assert default_values is None or \
+                isinstance(default_values, (tuple, list)), \
+                '%s __init__ was passed %s for default_values. ' \
+                'That should not be' % (self.__name__, default_values)
+            super().__init__()
+            self.start_str = start_str
+            # add default values -before- standard defaults (order matters)
+            if default_values:
+                self.default_strings = tuple(default_values) + \
+                                       tuple(self.default_strings)
+            # set text to default value
+            self.setText(str(self._find_default_value()))
+            self.gui_setup()
 
         def _find_default_value(self):
             return self.default_strings[0]  # until a better method is
@@ -3744,3 +3795,7 @@ def lead_app():
 # check PyUno model is a Workbook
 model = Office.get_model()
 app = QtW.QApplication([''])  # expects list of strings.
+
+
+if __name__ == '__main__':
+    lead_app()

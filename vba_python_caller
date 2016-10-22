@@ -1,3 +1,0 @@
-Sub PyLeadsMacro()
-    RunPython ("import leadmacro; leadmacro.lead_app()")
-End Sub
