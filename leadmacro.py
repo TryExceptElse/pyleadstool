@@ -837,7 +837,7 @@ class Office:
                     # split and find book + name
                     book_name, sheet_name = item.split("::")
                     return Office.XW.Sheet(
-                        self.active_app[book_name].sheets[sheet_name]
+                        self.active_app.books[book_name].sheets[sheet_name]
                     )
                 else:
                     # otherwise just look everywhere
