@@ -3744,3 +3744,6 @@ def lead_app():
 # check PyUno model is a Workbook
 model = Office.get_model()
 app = QtW.QApplication([''])  # expects list of strings.
+
+if __name__ == '__main__':
+    lead_app()
