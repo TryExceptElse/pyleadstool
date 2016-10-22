@@ -151,7 +151,7 @@ class Model:
         raise NotImplementedError
         # implemented by office program specific subclasses
 
-    def sheet_exists(self, sheet_name: str) -> bool:
+    def sheet_exists(self, *sheet_name: str) -> str:
         raise NotImplementedError
         # implemented by office program specific subclasses
 
@@ -802,15 +802,30 @@ class Office:
                 # there should be only one open at a given time usually,
                 # if any.
 
-            def sheet_exists(self, sheet_name: str) -> bool:
+            def sheet_exists(self, *sheet_name: str) -> str:
                 """
                 Tests if sheet exists in any book.
-                :param sheet_name: str
+                :param sheet_name_: str
                 :return: bool
                 """
-                for book in self.books:
-                    if sheet_name in book.Sheets:
-                        return True
+                for sheet_name_ in sheet_name:
+                    if "::" in sheet_name_:
+                        # if book/sheet name separator is in sheet_name,
+                        # first find the book, then sheet
+                        book_name, sheet_name_ = sheet_name_.split("::")
+                        try:
+                            book = self.active_app.books[book_name]
+                            sheet = book.sheets[sheet_name_]
+                        except KeyError:
+                            continue
+                        else:
+                            assert sheet.name == sheet_name_
+                            return sheet_name_
+                    else:
+                        # otherwise just find the sheet name
+                        for book in self.books:
+                            if sheet_name_ in book.Sheets:
+                                return sheet_name_
 
             def __getitem__(self, item: str or int):
                 """
@@ -818,9 +833,17 @@ class Office:
                 :param item:
                 :return: Sheet
                 """
-                for book in self.books:
-                    if item in book.Sheets:
-                        return Office.XW.Sheet(book.Sheets[item])
+                if isinstance(item, str) and "::" in item:
+                    # split and find book + name
+                    book_name, sheet_name = item.split("::")
+                    return Office.XW.Sheet(
+                        self.active_app[book_name].sheets[sheet_name]
+                    )
+                else:
+                    # otherwise just look everywhere
+                    for book in self.books:
+                        if item in book.Sheets:
+                            return Office.XW.Sheet(book.Sheets[item])
 
             @property
             def books(self):
@@ -858,8 +881,9 @@ class Office:
                 Gets iterable of names of usable sheets in Model
                 :return: iterator
                 """
-                for xw_sheet in self._xw_sheets:
-                    yield xw_sheet.name
+                for book in self.books:
+                    for sheet in book.sheets:
+                        yield "%s::%s" % (book.name, sheet.name)
 
         class Sheet(Sheet):
             def __init__(
