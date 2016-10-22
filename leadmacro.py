@@ -63,6 +63,11 @@ import platform
 import collections
 import pickle
 
+try:
+    import xlwings as xw
+except ImportError:
+    xw = None
+
 APP_FOLDER_NAME = 'leadsmacro'
 SAVED_TRANSLATIONS_FOLDER_NAME = 'saved_translations'
 SERIALIZED_OBJ_SUFFIX = '.pkl'
@@ -158,7 +163,12 @@ class Sheet:
     _reference_row_index = 0
     _reference_column_index = 0
 
-    def __init__(self) -> None:
+    def __init__(
+            self,
+            uno_sheet,
+            reference_row_index=0,
+            reference_column_index=0
+    ) -> None:
         raise NotImplementedError
 
     def get_column(
@@ -426,6 +436,28 @@ class Line:
     sheet = None  # these are all to be set on init in subclasses
     index = None  # index of this line.
 
+    def __init__(
+        self,
+        sheet: Sheet,
+        index: int,
+        reference_index: int,
+    ) -> None:
+        if not isinstance(sheet, Sheet):
+            raise TypeError(
+                'Expected subclass of Sheet. Instead got %s'
+                % repr(sheet))
+        if not isinstance(index, int):
+            raise TypeError(
+                'Expected line index to be an int. '
+                'Instead got %s' % repr(index))
+        if not isinstance(reference_index, int):
+            raise TypeError(
+                'Expected reference name index to be an int, '
+                'Instead got %s' % repr(reference_index))
+        self.sheet = sheet
+        self.index = index
+        self.reference_index = index
+
     def __getitem__(self, item: int or str):
         raise NotImplementedError
         # implemented by office program specific subclasses
@@ -495,11 +527,71 @@ class Line:
         return self[self.name_cell_index].value
 
 
+class CellLine:
+    """
+    Generator iterator that returns cells of a particular row or column
+    """
+    sheet = None
+    axis = None
+    index = None
+    i = 0
+    highest_inhabited_i = -1
+
+    # max_i = 0
+
+    def __init__(self, sheet: Sheet, axis: str, index: int) -> None:
+        assert axis in ('x', 'y')
+        self.sheet = sheet
+        self.axis = axis
+        self.index = index
+
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> Cell:
+        x, y = (self.index, self.i) if self.axis == 'y' else \
+            (self.i, self.index)
+        cell = self.sheet.get_cell((x, y))
+        if cell.string == '' and self.i > self.highest_inhabited_i:
+            for x in range(1, MAX_CELL_GAP):
+                test_x, test_y = (self.index, self.i + x) if \
+                    self.axis == 'y' else (self.i + x, self.index)
+                test_cell = self.sheet.get_cell((test_x, test_y))
+                if test_cell.string != '':
+                    self.highest_inhabited_i = self.i + x
+                    break
+            else:
+                raise StopIteration()
+        self.i += 1
+        return cell
+
+
 class Column(Line):
     """
     # this class exists for typing purposes, to provide a
     # common parent for Rows
     """
+
+    def __getitem__(self, cell_identifier) -> Cell:
+        """
+        Gets cell from passed identifier.
+        If identifier is string, presumes it is a cell's name.
+        If identifier is number, presumes it is a
+        cell's index.
+        To ensure the right method of fetching a cell is used,
+        use .get_by_name or .get_by_index
+        :param cell_identifier: str or int
+        :return: Cell
+        """
+        assert isinstance(cell_identifier, (int, str)), \
+            'Expected cell_identifier to be int or str, got %s ' \
+            % cell_identifier
+        if isinstance(cell_identifier, int):
+            return self.get_cell_by_index(cell_identifier)
+        else:
+            for x, cell in enumerate(self.reference_column):
+                if cell.value == cell_identifier:
+                    return self[x]
 
     @property
     def _reference_line(self):
@@ -553,14 +645,21 @@ class Cell:
     position = None
     sheet = None
 
-    def __init__(self):
-        raise NotImplementedError
+    def __init__(
+            self,
+            sheet: Sheet,
+            position: tuple
+    ) -> None:
+        assert len(position) == 2
+        assert all([isinstance(item, int) for item in position])
+        self.position = tuple(position)
+        self.sheet = sheet
 
     def set_color(self, color: int or list or tuple) -> None:
         raise NotImplementedError
 
     def remove_whitespace(self):
-        raise NotImplementedError
+        self.value = self.value_without_whitespace
 
     def clear(self):
         """Clears cell by setting value to None and color to default"""
@@ -577,11 +676,24 @@ class Cell:
 
     @property
     def has_whitespace(self) -> bool:
-        raise NotImplementedError
+        """
+        Gets bool of whether cell string contains whitespace.
+        If cell contains a number, returns False.
+        :return: bool
+        """
+        return self.value_without_whitespace != self.value
 
     @property
-    def value_without_whitespace(self):
-        raise NotImplementedError
+    def value_without_whitespace(self) -> str:
+        """
+        Gets value of cell without whitespace.
+        If cell is not a string, returns value unchanged.
+        :return:
+        """
+        if isinstance(self.value, str):
+            return self.value.strip()
+        else:
+            return self.value
 
     @property
     def value(self) -> int or float or str or None:
@@ -614,6 +726,9 @@ class Cell:
     @property
     def y(self):
         return NotImplementedError
+
+    def __str__(self) -> str:
+        return 'Cell[(%s), Value: %s' % (self.position, self.value)
 
 
 class Interface:
@@ -653,7 +768,195 @@ class Office:
 
         class Model(Model):
             def __init__(self):
-                pass
+                self.active_app = xw.apps[0]  # get first app open
+                # there should be only one open at a given time usually,
+                # if any.
+
+            @property
+            def books(self):
+                """
+                Returns dict? of books open
+                :return: dict? of books.
+                """
+                return self.active_app.books
+
+            @property
+            def sheets(self):
+                """
+                Generator returning each sheet in Model.
+                Weird implementation here to make it align with
+                PyUno interface. This returns all sheets in all
+                books open.
+                :return: Sheet
+                """
+                for book in self.books:
+                    for sheet in book.Sheets:
+                        yield Office.XW.Sheet(sheet)
+
+            def sheet_exists(self, sheet_name: str) -> bool:
+                """
+                Tests if sheet exists in any book.
+                :param sheet_name: str
+                :return: bool
+                """
+                for book in self.books:
+                    if sheet_name in book.Sheets:
+                        return True
+
+            def __getitem__(self, item: str or int):
+                """
+                Gets passed item, returning the sheet of that name.
+                :param item:
+                :return: Sheet
+                """
+                for book in self.books:
+                    if item in book.Sheets:
+                        return Office.XW.Sheet(book.Sheets[item])
+
+        class Sheet(Sheet):
+            def __init__(
+                    self,
+                    xw_sheet,
+                    reference_row_index=0,
+                    reference_column_index=0
+            ) -> None:
+                self.i7e_sheet = xw_sheet
+                self.reference_row_index = reference_row_index
+                self.reference_column_index = reference_column_index
+
+            def get_row_by_index(self, row_index: int or str):
+                if not isinstance(row_index, int):
+                    raise TypeError('Row index must be an int, got %s'
+                                    % row_index)
+                if row_index < 0:
+                    raise ValueError('Passed index must be 0 or greater.')
+                return Office.XW.Row(self, row_index, self.reference_row_index)
+
+            def get_column_by_index(self, column_index: int):
+                if not isinstance(column_index, int):
+                    raise TypeError('Column index must be an int, got %s'
+                                    % column_index)
+                if column_index < 0:
+                    raise ValueError('Passed index must be 0 or greater.')
+                return Office.XW.Column(
+                    self,
+                    column_index,
+                    self.reference_row_index
+                )
+
+        class Line(Line):
+            def __len__(self) -> int:
+                count = 0
+                for each in self:
+                    count += 1
+                return count
+
+            def get_iterator(self, axis: str) -> CellLine:
+                assert axis in 'x', 'y'
+                return CellLine(self.sheet, axis, self.index)
+
+        class Column(Line, Column):
+            def __init__(
+                    self,
+                    sheet: Sheet,
+                    column_index: int,
+                    reference_column_index: int=0):
+                super().__init__(
+                    sheet=sheet,
+                    index=column_index,
+                    reference_index=reference_column_index
+                )
+
+            def get_cell_by_index(self, index: int):
+                if not isinstance(index, int):
+                    raise TypeError(
+                        'get_cell_by_index: passed non-int index: %s' % index
+                    )
+                if index < 0:
+                    raise ValueError(
+                        'get_cell_by_index: passed index is < 0: %s' % index
+                    )
+                return Office.XW.Cell(self.sheet, (self.index, index))
+
+            def __iter__(self):
+                return self.get_iterator(axis='y')
+
+        class Row(Line, Row):
+            def __init__(
+                    self,
+                    sheet: Sheet,
+                    row_index: int,
+                    reference_row_index: int=0
+            ) -> None:
+                super().__init__(
+                    sheet=sheet,
+                    index=row_index,
+                    reference_index=reference_row_index,
+                )
+
+            def get_cell_by_index(self, index: int):
+                if not isinstance(index, int):
+                    raise TypeError(
+                        'get_cell_by_index: passed non-int index: %s' % index
+                    )
+                if index < 0:
+                    raise ValueError(
+                        'get_cell_by_index: passed index is < 0: %s' % index
+                    )
+                return Office.XW.Cell(self.sheet, (index, self.index))
+
+            def __iter__(self):
+                return self.get_iterator(axis='x')
+
+        class Cell(Cell):
+            @property
+            def _range(self):
+                """
+                Gets XW Range obj for this cell
+                :return: xlwings.Range
+                """
+                if not isinstance(self.sheet.i7e_sheet, xw.Range):
+                    raise TypeError(
+                        "Cell._range: expected sheet to be xw.Sheet. "
+                        "got: %s" % self.sheet
+                    )
+                return self.sheet.i7e_sheet.range(self.position)
+
+            @property
+            def value(self) -> int or float or str or None:
+                return self._range.value
+
+            @value.setter
+            def value(self, new_value) -> None:
+                self._range.value = new_value
+
+            @property
+            def float(self):
+                # XW will only return number (float), str or None in most
+                # cases, others include Date, (etc)?
+                if isinstance(self.value, float):
+                    return self.value
+                else:
+                    return 0.
+
+            def set_color(self, color: int or list or tuple) -> None:
+                color = Color(color)
+                self._range.color = color.rgb
+
+            @property
+            def string(self):
+                return str(self.value)
+
+            def clear(self):
+                self._range.clear()
+
+            @property
+            def x(self):
+                return self.position[0]
+
+            @property
+            def y(self):
+                return self.position[1]
 
     class Uno(Interface):
         """
@@ -750,40 +1053,6 @@ class Office:
                 self.reference_row_index = reference_row_index
                 self.reference_column_index = reference_column_index
 
-            def get_column(self, column_identifier: int or str) -> Column:
-                """
-                Gets column from name
-                :param column_identifier: str or int
-                identifying the column to retrieve
-                :return: Column
-                """
-                assert isinstance(column_identifier, (int, str)), \
-                    'getitem must be passed an int or str, got %s' \
-                    % column_identifier
-                if isinstance(column_identifier, int):
-                    column_index = column_identifier
-                else:
-                    column_index = self.get_column_index_from_name(
-                        column_identifier)
-                return self.get_column_by_index(column_index) if \
-                    column_index is not None else None
-
-            def get_row(self, row_identifier: str or int) -> Row:
-                """
-                Gets row from identifier
-                :param row_identifier:
-                :return:
-                """
-                assert isinstance(row_identifier, (int, str)), \
-                    'getitem must be passed an int or str, got %s' \
-                    % row_identifier
-                if isinstance(row_identifier, int):
-                    row_index = row_identifier
-                else:
-                    row_index = self.get_row_index_from_name(row_identifier)
-                return self.get_row_by_index(row_index) if \
-                    row_identifier is not None else None
-
             def get_column_by_index(self, column_index: int) -> Column:
                 """
                 Gets column of passed index
@@ -793,6 +1062,8 @@ class Office:
                 if not isinstance(column_index, int):
                     raise TypeError('Column index must be an int, got %s'
                                     % column_index)
+                if column_index < 0:
+                    raise ValueError('Passed index must be 0 or greater.')
                 return Office.Uno.Column(
                     sheet=self,
                     column_index=column_index,
@@ -818,27 +1089,6 @@ class Office:
             """
             Contains methods common to both Columns and Rows
             """
-            def __init__(
-                self,
-                sheet: Sheet,
-                index: int,
-                reference_index: int,
-            ) -> None:
-                if not isinstance(sheet, Sheet):
-                    raise TypeError(
-                        'Expected subclass of Sheet. Instead got %s'
-                        % repr(sheet))
-                if not isinstance(index, int):
-                    raise TypeError(
-                        'Expected line index to be an int. '
-                        'Instead got %s' % repr(index))
-                if not isinstance(reference_index, int):
-                    raise TypeError(
-                        'Expected reference name index to be an int, '
-                        'Instead got %s' % repr(reference_index))
-                self.sheet = sheet
-                self.index = index
-                self.reference_index = index
 
             def __len__(self) -> int:
                 n = 0
@@ -869,33 +1119,12 @@ class Office:
                     reference_index=reference_column_index
                 )
 
-            def __getitem__(self, cell_identifier) -> Cell:
-                """
-                Gets cell from passed identifier.
-                If identifier is string, presumes it is a cell's name.
-                If identifier is number, presumes it is a
-                cell's index.
-                To ensure the right method of fetching a cell is used,
-                use .get_by_name or .get_by_index
-                :param cell_identifier: str or int
-                :return: Cell
-                """
-                assert isinstance(cell_identifier, (int, str)), \
-                    'Expected cell_identifier to be int or str, got %s ' \
-                    % cell_identifier
-                if isinstance(cell_identifier, int):
-                    return self.get_cell_by_index(cell_identifier)
-                else:
-                    for x, cell in enumerate(self.reference_column):
-                        if cell.value == cell_identifier:
-                            return self[x]
-
             def __iter__(self):
                 """
                 Returns iterable line of cells
                 :return: Iterable
                 """
-                return Office.Uno.CellLine(
+                return CellLine(
                     sheet=self.sheet,
                     axis='y',
                     index=self.index)
@@ -949,7 +1178,7 @@ class Office:
                             return self[x]
 
             def __iter__(self):
-                return Office.Uno.CellLine(
+                return CellLine(
                     sheet=self.sheet,
                     axis='x',
                     index=self.index)
@@ -967,61 +1196,10 @@ class Office:
                     sheet=self.sheet,
                     position=(index, self.index))
 
-        class CellLine:
-            """
-            Generator iterable that returns cells of a particular row or column
-            """
-            sheet = None
-            axis = None
-            index = None
-            i = 0
-            highest_inhabited_i = -1
-
-            # max_i = 0
-
-            def __init__(self, sheet, axis, index):
-                assert axis in ('x', 'y')
-                self.sheet = sheet
-                self.axis = axis
-                self.index = index
-
-            def __iter__(self):
-                return self
-
-            def __next__(self) -> Cell:
-                x, y = (self.index, self.i) if self.axis == 'y' else \
-                    (self.i, self.index)
-                cell = Office.Uno.Cell(self.sheet, (x, y))
-                if cell.string == '' and self.i > self.highest_inhabited_i:
-                    for x in range(1, MAX_CELL_GAP):
-                        test_x, test_y = (self.index, self.i + x) if \
-                            self.axis == 'y' else (self.i + x, self.index)
-                        test_cell = Office.Uno.Cell(
-                            self.sheet,
-                            position=(test_x, test_y))
-                        if test_cell.string != '':
-                            self.highest_inhabited_i = self.i + x
-                            break
-                    else:
-                        raise StopIteration()
-                self.i += 1
-                return cell
-
         class Cell(Cell):
             """
             Handles usage of an individual cell
             """
-
-            def __init__(
-                    self,
-                    sheet: Sheet,
-                    position: tuple
-            ) -> None:
-                assert all([isinstance(item, int) for item in position])
-                assert len(position) == 2
-                self.position = tuple(position)
-                self.sheet = sheet
-
             def set_color(self, color):
                 """
                 Sets cell background color
@@ -1045,27 +1223,6 @@ class Office:
                 :return: uno Sheet obj
                 """
                 return self.sheet.i7e_sheet
-
-            @property
-            def value_without_whitespace(self) -> str:
-                """
-                Gets value of cell without whitespace.
-                If cell is not a string, returns value unchanged.
-                :return:
-                """
-                if isinstance(self.value, str):
-                    return self.value.strip()
-                else:
-                    return self.value
-
-            @property
-            def has_whitespace(self) -> bool:
-                """
-                Gets bool of whether cell string contains whitespace.
-                If cell contains a number, returns False.
-                :return: bool
-                """
-                return self.value_without_whitespace != self.value
 
             @property
             def _source_cell(self):
@@ -1156,9 +1313,6 @@ class Office:
                 """
                 return self.position[1]
 
-            def __str__(self) -> str:
-                return 'Cell[(%s), Value: %s' % (self.position, self.value)
-
     @staticmethod
     def get_interface() -> str or None:
         """
@@ -1174,10 +1328,10 @@ class Office:
         else:
             return 'Uno'
 
-            # test for XLWings
-            # todo
+        if xw is not None:
+            return 'XW'
 
-            # otherwise, return None / False
+        # otherwise, return None / False
 
     @staticmethod
     def get_interface_class() -> Interface:
@@ -2340,6 +2494,7 @@ class TranslationDialog(PyLeadDlg):
             msg.setText("One or more columns have been automatically filled"
                         "based on previous selections.\n"
                         "Please ensure all auto-filled columns are correct.")
+            msg.exec()
 
         def store_col_associations(self) -> bool:
             """
@@ -3440,6 +3595,47 @@ class Associations:
         :return: deque
         """
         return self._assoc_deque
+
+
+class Color:
+    """
+    Handles color conversions such as hex -> RGB or RGB -> hex
+    """
+    color = 0
+
+    def __init__(self, color):
+        if isinstance(color, int):
+            self.color = color  # store as int
+        elif isinstance(color, tuple):
+            if len(color) != 3:
+                raise ValueError(
+                    "Color: RGB tuple should be len 3. got: %s" % color
+                )
+            if any([(not isinstance(value, int) or value > 255)
+                    for value in color]):
+                raise ValueError(
+                    "Color: each value in color rgb tuple should be an int"
+                    "between 0 and 255. Got: %s" % color
+                )
+            r = color[0]
+            g = color[1]
+            b = color[2]
+            self.color = (r << 16) + (g << 8) + b
+
+        elif isinstance(color, str):
+            raise ValueError("Color does not yet support string colors")
+        elif isinstance(color, Color):
+            self.color = color.color  # color has stopped sounding like a word
+        else:
+            raise TypeError("Color constructor was passed an "
+                            "unknown color identifier: %s" % color)
+
+    @property
+    def rgb(self):
+        r = (self.color >> 16) & 255
+        g = (self.color >> 8) & 255
+        b = self.color & 255
+        return r, g, b
 
 
 def lead_app():
