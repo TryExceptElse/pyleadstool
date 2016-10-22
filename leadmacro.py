@@ -42,8 +42,11 @@ GUI
 
 KNOWN BUGS:
 
-Attempting to open two instances of the macro simultaneously will
-freeze both macros and the office program
+*   Attempting to open two instances of the macro simultaneously will
+    freeze both macros and the office program
+*   When loading or saving previous translations (using FileDlg class),
+    interacting with the dlg will usually require two clicks
+
 
 TODO:
 *get translation table starting values from a saved association table
@@ -527,52 +530,13 @@ class Line:
         return self[self.name_cell_index].value
 
 
-class CellLine:
-    """
-    Generator iterator that returns cells of a particular row or column
-    """
-    sheet = None
-    axis = None
-    index = None
-    i = 0
-    highest_inhabited_i = -1
-
-    # max_i = 0
-
-    def __init__(self, sheet: Sheet, axis: str, index: int) -> None:
-        assert axis in ('x', 'y')
-        self.sheet = sheet
-        self.axis = axis
-        self.index = index
-
-    def __iter__(self):
-        return self
-
-    def __next__(self) -> Cell:
-        x, y = (self.index, self.i) if self.axis == 'y' else \
-            (self.i, self.index)
-        cell = self.sheet.get_cell((x, y))
-        if cell.string == '' and self.i > self.highest_inhabited_i:
-            for x in range(1, MAX_CELL_GAP):
-                test_x, test_y = (self.index, self.i + x) if \
-                    self.axis == 'y' else (self.i + x, self.index)
-                test_cell = self.sheet.get_cell((test_x, test_y))
-                if test_cell.string != '':
-                    self.highest_inhabited_i = self.i + x
-                    break
-            else:
-                raise StopIteration()
-        self.i += 1
-        return cell
-
-
 class Column(Line):
     """
     # this class exists for typing purposes, to provide a
     # common parent for Rows
     """
 
-    def __getitem__(self, cell_identifier) -> Cell:
+    def __getitem__(self, cell_identifier):
         """
         Gets cell from passed identifier.
         If identifier is string, presumes it is a cell's name.
@@ -616,6 +580,25 @@ class Row(Line):
     # this class exists for typing purposes, to provide a
     # common parent for Rows
     """
+
+    def __getitem__(self, cell_identifier):
+        """
+        Gets cell from passed identifier.
+        If identifier is string, presumes it is a cell's name.
+        If identifier is number, presumes it is a
+        cell's index.
+        To ensure the right method of fetching a cell is used,
+        use .get_by_name or .get_by_index.
+        :param cell_identifier: str or int
+        :return: Cell
+        """
+        assert isinstance(cell_identifier, (str, int))
+        if isinstance(cell_identifier, int):
+            return self.get_cell_by_index(cell_identifier)
+        else:
+            for x, cell in enumerate(self.reference_row):
+                if cell.value == cell_identifier:
+                    return self[x]
 
     @property
     def _reference_line(self):
@@ -729,6 +712,45 @@ class Cell:
 
     def __str__(self) -> str:
         return 'Cell[(%s), Value: %s' % (self.position, self.value)
+
+
+class CellLine:
+    """
+    Generator iterator that returns cells of a particular row or column
+    """
+    sheet = None
+    axis = None
+    index = None
+    i = 0
+    highest_inhabited_i = -1
+
+    # max_i = 0
+
+    def __init__(self, sheet: Sheet, axis: str, index: int) -> None:
+        assert axis in ('x', 'y')
+        self.sheet = sheet
+        self.axis = axis
+        self.index = index
+
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> Cell:
+        x, y = (self.index, self.i) if self.axis == 'y' else \
+            (self.i, self.index)
+        cell = self.sheet.get_cell((x, y))
+        if cell.string == '' and self.i > self.highest_inhabited_i:
+            for x in range(1, MAX_CELL_GAP):
+                test_x, test_y = (self.index, self.i + x) if \
+                    self.axis == 'y' else (self.i + x, self.index)
+                test_cell = self.sheet.get_cell((test_x, test_y))
+                if test_cell.string != '':
+                    self.highest_inhabited_i = self.i + x
+                    break
+            else:
+                raise StopIteration()
+        self.i += 1
+        return cell
 
 
 class Interface:
@@ -1157,25 +1179,6 @@ class Office:
                     index=row_index,
                     reference_index=reference_row_index,
                 )
-
-            def __getitem__(self, cell_identifier) -> Cell:
-                """
-                Gets cell from passed identifier.
-                If identifier is string, presumes it is a cell's name.
-                If identifier is number, presumes it is a
-                cell's index.
-                To ensure the right method of fetching a cell is used,
-                use .get_by_name or .get_by_index.
-                :param cell_identifier: str or int
-                :return: Cell
-                """
-                assert isinstance(cell_identifier, (str, int))
-                if isinstance(cell_identifier, int):
-                    return self.get_cell_by_index(cell_identifier)
-                else:
-                    for x, cell in enumerate(self.reference_row):
-                        if cell.value == cell_identifier:
-                            return self[x]
 
             def __iter__(self):
                 return CellLine(
