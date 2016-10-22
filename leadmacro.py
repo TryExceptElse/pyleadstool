@@ -160,6 +160,14 @@ class Model:
         raise NotImplementedError
         # implemented by office program specific subclasses
 
+    @property
+    def sheet_names(self):
+        """
+        Gets iterable of sheet names
+        :return: str iterable
+        """
+        raise NotImplementedError
+
 
 class Sheet:
     i7e_sheet = None  # interface sheet obj. ie; com.sun.star...Sheet
@@ -794,27 +802,6 @@ class Office:
                 # there should be only one open at a given time usually,
                 # if any.
 
-            @property
-            def books(self):
-                """
-                Returns dict? of books open
-                :return: dict? of books.
-                """
-                return self.active_app.books
-
-            @property
-            def sheets(self):
-                """
-                Generator returning each sheet in Model.
-                Weird implementation here to make it align with
-                PyUno interface. This returns all sheets in all
-                books open.
-                :return: Sheet
-                """
-                for book in self.books:
-                    for sheet in book.Sheets:
-                        yield Office.XW.Sheet(sheet)
-
             def sheet_exists(self, sheet_name: str) -> bool:
                 """
                 Tests if sheet exists in any book.
@@ -834,6 +821,45 @@ class Office:
                 for book in self.books:
                     if item in book.Sheets:
                         return Office.XW.Sheet(book.Sheets[item])
+
+            @property
+            def books(self):
+                """
+                Returns dict? of books open
+                :return: dict? of books.
+                """
+                return self.active_app.books
+
+            @property
+            def _xw_sheets(self):
+                """
+                Yields each found xw sheet object in model
+                :return: XW Sheet iterator
+                """
+                for xw_book in self.books:
+                    for xw_sheet in xw_book.Sheets:
+                        yield xw_sheet
+
+            @property
+            def sheets(self):
+                """
+                Generator returning each sheet in Model.
+                Weird implementation here to make it align with
+                PyUno interface. This returns all sheets in all
+                books open.
+                :return: Sheet
+                """
+                for xw_sheet in self._xw_sheets:
+                    yield Office.XW.Sheet(xw_sheet)
+
+            @property
+            def sheet_names(self):
+                """
+                Gets iterable of names of usable sheets in Model
+                :return: iterator
+                """
+                for xw_sheet in self._xw_sheets:
+                    yield xw_sheet.name
 
         class Sheet(Sheet):
             def __init__(
@@ -1059,6 +1085,14 @@ class Office:
                         break
                     else:
                         i += 1
+
+            @property
+            def sheet_names(self):
+                """
+                Returns tuple of sheet names in model / current book
+                :return: tuple
+                """
+                return self.model.Sheets.ElementNames
 
         class Sheet(Sheet):
             """
