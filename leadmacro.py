@@ -1360,7 +1360,7 @@ class Office:
         # test for Python Uno
         try:
             XSCRIPTCONTEXT  # if this variable exists, PyUno is being used.
-        except AttributeError:
+        except NameError:
             pass
         else:
             return 'Uno'
