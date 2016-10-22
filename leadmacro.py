@@ -990,7 +990,7 @@ class Office:
                 if not isinstance(self.sheet.i7e_sheet, xw.Range):
                     raise TypeError(
                         "Cell._range: expected sheet to be xw.Sheet. "
-                        "got: %s" % self.sheet
+                        "got: %s" % self.i7e_sheet
                     )
                 return self.sheet.i7e_sheet.range(self.position)
 
