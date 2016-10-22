@@ -49,7 +49,9 @@ KNOWN BUGS:
 
 
 TODO:
-*get translation table starting values from a saved association table
+*   Fix cell line iteration error in XW
+*   Drop down sheet selection in PreliminaryDlg
+*   Ensure Association file saves + loads on windows
 
 INSTALL:
 for libreoffice, requires python scripts module installed.
@@ -924,7 +926,7 @@ class Office:
                 return count
 
             def get_iterator(self, axis: str) -> CellLine:
-                assert axis in 'x', 'y'
+                assert axis == 'x' or axis == 'y'
                 return CellLine(self.sheet, axis, self.index)
 
         class Column(Line, Column):
@@ -951,7 +953,7 @@ class Office:
                 return Office.XW.Cell(self.sheet, (self.index, index))
 
             def __iter__(self):
-                return self.get_iterator(axis='y')
+                return self.get_iterator(axis='x')
 
         class Row(Line, Row):
             def __init__(
@@ -978,7 +980,7 @@ class Office:
                 return Office.XW.Cell(self.sheet, (index, self.index))
 
             def __iter__(self):
-                return self.get_iterator(axis='x')
+                return self.get_iterator(axis='y')
 
         class Cell(Cell):
             @property
@@ -1015,7 +1017,10 @@ class Office:
 
             @property
             def string(self):
-                return str(self.value)
+                if self.value is not None:
+                    return str(self.value)
+                else:
+                    return ''
 
             def clear(self):
                 self._range.clear()
@@ -2393,6 +2398,7 @@ class TranslationDialog(PyLeadDlg):
                 'Expected presets to be a list or None. Got %s' % presets
             if presets is not None:
                 assert all([isinstance(item, dict) for item in presets])
+            print('getting column names')
             self.src_col_names = [
                 col.name for col in source_sheet.columns
                 if col.name is not None
@@ -2401,12 +2407,14 @@ class TranslationDialog(PyLeadDlg):
                 col.name for col in target_sheet.columns
                 if col.name is not None
             ]
+            print('setting presets')
             self.presets = presets if presets else []
             self.option_widget_classes = [
                 self.SourceColumnDropDown,
                 self.WhiteSpaceCheckbox,
                 self.DuplicateCheckbox
             ]
+            print('drawing table')
             self.draw_table()
 
         class SourceColumnDropDown(QtW.QComboBox):
@@ -2520,6 +2528,8 @@ class TranslationDialog(PyLeadDlg):
             column name resides at index 0 of
             :return: None
             """
+            if self.col_assoc.is_empty():
+                return
             y = 0
             x = self.get_option_index(self.SourceColumnDropDown)
             filled_tgt_columns = []
@@ -3525,6 +3535,7 @@ class Associations:
         self.unmapped_index = 0  # first unmapped assoc in deque
         # modified since last access
         self._assoc_dict = {}
+        print("finished creating assoc obj")
 
     def __getitem__(self, key):
         """
@@ -3645,6 +3656,9 @@ class Associations:
         """
         for entry in self._assoc_deque:
             return entry[1]
+
+    def is_empty(self) -> bool:
+        return len(self._assoc_deque) == 0
 
     @property
     def assoc_deque(self):
