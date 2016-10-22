@@ -824,7 +824,7 @@ class Office:
                     else:
                         # otherwise just find the sheet name
                         for book in self.books:
-                            if sheet_name_ in book.Sheets:
+                            if sheet_name_ in book.sheets:
                                 return sheet_name_
 
             def __getitem__(self, item: str or int):
@@ -842,8 +842,8 @@ class Office:
                 else:
                     # otherwise just look everywhere
                     for book in self.books:
-                        if item in book.Sheets:
-                            return Office.XW.Sheet(book.Sheets[item])
+                        if item in book.sheets:
+                            return Office.XW.Sheet(book.sheets[item])
 
             @property
             def books(self):
@@ -860,7 +860,7 @@ class Office:
                 :return: XW Sheet iterator
                 """
                 for xw_book in self.books:
-                    for xw_sheet in xw_book.Sheets:
+                    for xw_sheet in xw_book.sheets:
                         yield xw_sheet
 
             @property
