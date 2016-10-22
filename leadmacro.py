@@ -150,7 +150,7 @@ class Model:
         raise NotImplementedError
         # implemented by office program specific subclasses
 
-    def sheet_exists(self, sheet_name: str) -> bool:
+    def sheet_exists(self, *sheet_name: str) -> str:
         raise NotImplementedError
         # implemented by office program specific subclasses
 
@@ -801,28 +801,30 @@ class Office:
                 # there should be only one open at a given time usually,
                 # if any.
 
-            def sheet_exists(self, sheet_name: str) -> bool:
+            def sheet_exists(self, *sheet_name: str) -> bool:
                 """
                 Tests if sheet exists in any book.
                 :param sheet_name: str
                 :return: bool
                 """
-                if "::" in sheet_name:
-                    # if book/sheet name separator is in sheet_name,
-                    # first find the book, then sheet
-                    book_name, sheet_name = sheet_name.split("::")
-                    try:
-                        book = self.active_app.books[book_name]
-                        sheet = book.sheets[sheet_name]
-                    except KeyError:
-                        return False
+                for sheet_name_ in sheet_name:
+                    if "::" in sheet_name_:
+                        # if book/sheet name separator is in name,
+                        # first find the book, then sheet
+                        book_name, sheet_name_ = sheet_name_.split("::")
+                        try:
+                            book = self.active_app.books[book_name]
+                            sheet = book.sheets[sheet_name_]
+                        except KeyError:
+                            continue
+                        else:
+                            assert sheet.name == sheet_name_
+                            return sheet_name_
                     else:
-                        return True
-                else:
-                    # otherwise just find the sheet name
-                    for book in self.books:
-                        if sheet_name in book.Sheets:
-                            return True
+                        # otherwise just find the sheet name
+                        for book in self.books:
+                            if sheet_name_ in book.sheets:
+                                return True
 
             def __getitem__(self, item: str or int):
                 """
@@ -857,7 +859,7 @@ class Office:
                 :return: XW Sheet iterator
                 """
                 for xw_book in self.books:
-                    for xw_sheet in xw_book.Sheets:
+                    for xw_sheet in xw_book.sheets:
                         yield xw_sheet
 
             @property
@@ -875,11 +877,15 @@ class Office:
             @property
             def sheet_names(self):
                 """
-                Gets iterable of names of usable sheets in Model
+                Gets iterable of names of usable sheets in Model.
+                Returned sheets are in format book_name::sheet_name
                 :return: iterator
                 """
-                for xw_sheet in self._xw_sheets:
-                    yield xw_sheet.name
+                for book in self.books:
+                    book_name = book.name
+                    for sheet in book.sheets:
+                        sheet_name = sheet.name
+                        yield "%s::%s" % (book_name, sheet_name)
 
         class Sheet(Sheet):
             def __init__(
@@ -1380,7 +1386,7 @@ class Office:
         # test for Python Uno
         try:
             XSCRIPTCONTEXT  # if this variable exists, PyUno is being used.
-        except AttributeError:
+        except NameError:
             pass
         else:
             return 'Uno'
@@ -2735,7 +2741,7 @@ class PreliminarySettings(PyLeadDlg):
                 self.default_strings = tuple(default_values) + \
                                        tuple(self.default_strings)
             # set text to default value
-            self.setText(str(self._find_default_value()))
+            self.setCurrentText(str(self._find_default_value()))
             self.gui_setup()
 
         def _find_default_value(self):
@@ -2771,7 +2777,6 @@ class PreliminarySettings(PyLeadDlg):
 
         def gui_setup(self):
             self.setToolTip('Sheet to import columns from')
-            self.setPlaceholderText('Import Sheet')
 
         def check_valid(self):
             sheet_name = self.text()  # get text entered by user
@@ -2803,7 +2808,6 @@ class PreliminarySettings(PyLeadDlg):
 
         def gui_setup(self):
             self.setToolTip('Sheet to export columns to')
-            self.setPlaceholderText('Export Sheet')
 
         def check_valid(self):
             sheet_name = self.text()  # get text entered by user
@@ -2940,12 +2944,14 @@ class PreliminarySettings(PyLeadDlg):
                 dict_str in values else []
 
             # create and add the field
+            print('creating field: %s' % field_class.__name__)
             field = field_class(start_str=start_str,
                                 default_values=additional_default_values)
             assert isinstance(field, self.SettingField)
             self.fields.append(field)
             grid.add_row(field.side_string, field)
         # add ok and cancel buttons
+        print('created fields')
 
         grid.add_row(self.CancelButton(self.reject),
                      OkButton(self._ok))
@@ -2960,6 +2966,7 @@ class PreliminarySettings(PyLeadDlg):
         settings dictionary.
         """
         # check that entered sheets exist
+        print('PreliminaryDlg "ok" pressed')
         if any([not field.check_valid() for field in self.fields]):
             # field.check_valid displays info dialogs to user
             # if not valid.
