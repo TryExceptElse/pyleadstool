@@ -49,6 +49,7 @@ KNOWN BUGS:
 
 
 TODO:
+*get translation table starting values from a saved association table
 
 INSTALL:
 for libreoffice, requires python scripts module installed.
@@ -150,7 +151,7 @@ class Model:
         raise NotImplementedError
         # implemented by office program specific subclasses
 
-    def sheet_exists(self, *sheet_name: str) -> str:
+    def sheet_exists(self, sheet_name: str) -> bool:
         raise NotImplementedError
         # implemented by office program specific subclasses
 
@@ -801,30 +802,15 @@ class Office:
                 # there should be only one open at a given time usually,
                 # if any.
 
-            def sheet_exists(self, *sheet_name: str) -> bool:
+            def sheet_exists(self, sheet_name: str) -> bool:
                 """
                 Tests if sheet exists in any book.
                 :param sheet_name: str
                 :return: bool
                 """
-                for sheet_name_ in sheet_name:
-                    if "::" in sheet_name_:
-                        # if book/sheet name separator is in name,
-                        # first find the book, then sheet
-                        book_name, sheet_name_ = sheet_name_.split("::")
-                        try:
-                            book = self.active_app.books[book_name]
-                            sheet = book.sheets[sheet_name_]
-                        except KeyError:
-                            continue
-                        else:
-                            assert sheet.name == sheet_name_
-                            return sheet_name_
-                    else:
-                        # otherwise just find the sheet name
-                        for book in self.books:
-                            if sheet_name_ in book.sheets:
-                                return True
+                for book in self.books:
+                    if sheet_name in book.Sheets:
+                        return True
 
             def __getitem__(self, item: str or int):
                 """
@@ -832,17 +818,9 @@ class Office:
                 :param item:
                 :return: Sheet
                 """
-                if isinstance(item, str) and "::" in item:
-                    # split and find book + name
-                    book_name, sheet_name = item.split("::")
-                    return Office.XW.Sheet(
-                        self.active_app[book_name].sheets[sheet_name]
-                    )
-                else:
-                    # otherwise just look everywhere
-                    for book in self.books:
-                        if item in book.Sheets:
-                            return Office.XW.Sheet(book.Sheets[item])
+                for book in self.books:
+                    if item in book.Sheets:
+                        return Office.XW.Sheet(book.Sheets[item])
 
             @property
             def books(self):
@@ -859,7 +837,7 @@ class Office:
                 :return: XW Sheet iterator
                 """
                 for xw_book in self.books:
-                    for xw_sheet in xw_book.sheets:
+                    for xw_sheet in xw_book.Sheets:
                         yield xw_sheet
 
             @property
@@ -877,15 +855,11 @@ class Office:
             @property
             def sheet_names(self):
                 """
-                Gets iterable of names of usable sheets in Model.
-                Returned sheets are in format book_name::sheet_name
+                Gets iterable of names of usable sheets in Model
                 :return: iterator
                 """
-                for book in self.books:
-                    book_name = book.name
-                    for sheet in book.sheets:
-                        sheet_name = sheet.name
-                        yield "%s::%s" % (book_name, sheet_name)
+                for xw_sheet in self._xw_sheets:
+                    yield xw_sheet.name
 
         class Sheet(Sheet):
             def __init__(
@@ -1386,7 +1360,7 @@ class Office:
         # test for Python Uno
         try:
             XSCRIPTCONTEXT  # if this variable exists, PyUno is being used.
-        except NameError:
+        except AttributeError:
             pass
         else:
             return 'Uno'
@@ -2702,10 +2676,6 @@ class TranslationDialog(PyLeadDlg):
 
 
 class PreliminarySettings(PyLeadDlg):
-    """
-    Settings Dlg that gets src and target sheet, and any information
-    about them that is required before creating the translations dlg.
-    """
     class SettingField(QtW.QLineEdit):
         # string appearing next to field in settings table
         side_string = ''  # replaced by child classes
@@ -2714,16 +2684,6 @@ class PreliminarySettings(PyLeadDlg):
         # values to default to, in order of priority
         default_strings = tuple()  # replaced by child classes
 
-        def _find_default_value(self):
-            raise NotImplementedError  # does nothing here.
-
-        def gui_setup(self):
-            pass  # does nothing here, inherited by child classes
-
-        def check_valid(self):
-            pass  # inherited
-
-    class SheetField(QtW.QComboBox, SettingField):
         def __init__(self, start_str='', default_values=None):
             assert isinstance(start_str, str), \
                 'Expected start_str to be str, instead %s was passed %s.' \
@@ -2734,16 +2694,24 @@ class PreliminarySettings(PyLeadDlg):
                 'That should not be' % (self.__name__, default_values)
             super().__init__()
             self.start_str = start_str
-            # add items to drop-down-menu
-            self.addItems(model.sheet_names)
             # add default values -before- standard defaults (order matters)
             if default_values:
                 self.default_strings = tuple(default_values) + \
                                        tuple(self.default_strings)
             # set text to default value
-            self.setCurrentText(str(self._find_default_value()))
+            self.setText(str(self._find_default_value()))
             self.gui_setup()
 
+        def _find_default_value(self):
+            raise NotImplementedError  # does nothing here.
+
+        def gui_setup(self):
+            pass  # does nothing here, inherited by child classes
+
+        def check_valid(self):
+            pass  # inherited
+
+    class SheetField(SettingField):
         def _find_default_value(self):
             # find default value
             if self.start_str:  # if a starting string has been passed,
@@ -2758,25 +2726,19 @@ class PreliminarySettings(PyLeadDlg):
                 else:
                     return ''
 
-        def gui_setup(self):
-            pass  # does nothing here, inherited by child classes
-
-        def check_valid(self):
-            pass  # inherited
-
         @property
         def value(self):
-            return self.currentText()
+            return self.text()
 
     class ImportSheetField(SheetField):
         """Gets name of sheet to import from"""
-
         dict_string = SOURCE_SHEET_KEY
         side_string = 'Import sheet name'
         default_strings = 'import', 'Sheet1', 'sheet1'
 
         def gui_setup(self):
             self.setToolTip('Sheet to import columns from')
+            self.setPlaceholderText('Import Sheet')
 
         def check_valid(self):
             sheet_name = self.text()  # get text entered by user
@@ -2808,6 +2770,7 @@ class PreliminarySettings(PyLeadDlg):
 
         def gui_setup(self):
             self.setToolTip('Sheet to export columns to')
+            self.setPlaceholderText('Export Sheet')
 
         def check_valid(self):
             sheet_name = self.text()  # get text entered by user
@@ -2831,26 +2794,8 @@ class PreliminarySettings(PyLeadDlg):
                               sheet_name
                 )
 
-    class StartLineField(QtW.QTextEdit, SettingField):
+    class StartLineField(SettingField):
         default_strings = '1',
-
-        def __init__(self, start_str='', default_values=None):
-            assert isinstance(start_str, str), \
-                'Expected start_str to be str, instead %s was passed %s.' \
-                % (self.__class__.__name__, start_str)
-            assert default_values is None or \
-                isinstance(default_values, (tuple, list)), \
-                '%s __init__ was passed %s for default_values. ' \
-                'That should not be' % (self.__name__, default_values)
-            super().__init__()
-            self.start_str = start_str
-            # add default values -before- standard defaults (order matters)
-            if default_values:
-                self.default_strings = tuple(default_values) + \
-                                       tuple(self.default_strings)
-            # set text to default value
-            self.setText(str(self._find_default_value()))
-            self.gui_setup()
 
         def _find_default_value(self):
             return self.default_strings[0]  # until a better method is
@@ -2944,14 +2889,12 @@ class PreliminarySettings(PyLeadDlg):
                 dict_str in values else []
 
             # create and add the field
-            print('creating field: %s' % field_class.__name__)
             field = field_class(start_str=start_str,
                                 default_values=additional_default_values)
             assert isinstance(field, self.SettingField)
             self.fields.append(field)
             grid.add_row(field.side_string, field)
         # add ok and cancel buttons
-        print('created fields')
 
         grid.add_row(self.CancelButton(self.reject),
                      OkButton(self._ok))
@@ -2966,7 +2909,6 @@ class PreliminarySettings(PyLeadDlg):
         settings dictionary.
         """
         # check that entered sheets exist
-        print('PreliminaryDlg "ok" pressed')
         if any([not field.check_valid() for field in self.fields]):
             # field.check_valid displays info dialogs to user
             # if not valid.
@@ -3802,7 +3744,3 @@ def lead_app():
 # check PyUno model is a Workbook
 model = Office.get_model()
 app = QtW.QApplication([''])  # expects list of strings.
-
-
-if __name__ == '__main__':
-    lead_app()
