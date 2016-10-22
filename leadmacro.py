@@ -987,12 +987,10 @@ class Office:
                 Gets XW Range obj for this cell
                 :return: xlwings.Range
                 """
-                if not isinstance(self.sheet.i7e_sheet, xw.Range):
-                    raise TypeError(
-                        "Cell._range: expected sheet to be xw.Sheet. "
-                        "got: %s" % self.i7e_sheet
-                    )
-                return self.sheet.i7e_sheet.range(self.position)
+                x, y = self.position
+                x += 1
+                y += 1  # correct to excel 1 based index
+                return self.sheet.i7e_sheet.range(x, y)
 
             @property
             def value(self) -> int or float or str or None:
