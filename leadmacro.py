@@ -153,6 +153,26 @@ class Model:
         raise NotImplementedError
         # implemented by office program specific subclasses
 
+    def __iter__(self):
+        raise NotImplementedError
+
+    def get_sheet(
+            self,
+            sheet_name: str,
+            row_ref_i: int=0,
+            col_ref_i: int=0
+    ):
+        """
+        Gets sheet of passed name in Model.
+        Functions the same as Model.__getitem__ except reference row
+        and reference column indices may be passed to this method.
+        :param sheet_name: str
+        :param row_ref_i: int
+        :param col_ref_i: int
+        :return: Sheet
+        """
+        raise NotImplementedError  # todo: finish sorting these two methods out
+
     def sheet_exists(self, *sheet_name: str) -> str:
         raise NotImplementedError
         # implemented by office program specific subclasses
@@ -445,6 +465,16 @@ class LineSeries:
             yield line.name
 
     @property
+    def named_only(self):
+        """
+        Yields only lines in this series that have line headers
+        :return:
+        """
+        for line in self:
+            if line.name:
+                yield line
+
+    @property
     def indexes(self):
         """
         Yields indexes of lines in LineList
@@ -554,6 +584,22 @@ class Line:
         :return: int, float, str or None
         """
         return self[self.name_cell_index].value
+
+    def __repr__(self) -> str:
+        return '%s(sheet=%s, index(0-base)=%s, ref_index=%s) name: %s' % (
+            self.__class__.__name__,
+            repr(self.sheet),
+            self.index,
+            self.reference_index,
+            self.name
+        )
+
+    def __str__(self) -> str:
+        return '%s[index(0-base): %s] name: %s' % (
+            self.__class__.__name__,
+            self.index,
+            self.name
+        )
 
 
 class Column(Line):
@@ -2348,19 +2394,21 @@ class TranslationDialog(PyLeadDlg):
     def __init__(self, settings):
         print('Translation Dlg began')
         super().__init__(settings)
-        source_sheet = settings[SOURCE_SHEET_KEY]
-        target_sheet = settings[TARGET_SHEET_KEY]
+        src_sheet_name = settings[SOURCE_SHEET_KEY]
+        tgt_sheet_name = settings[TARGET_SHEET_KEY]
         source_start = settings[SOURCE_START_KEY]
         target_start = settings[TARGET_START_KEY]
-        assert isinstance(source_sheet, (Office.get_sheet_class(), str, int))
-        assert isinstance(target_sheet, (Office.get_sheet_class(), str, int))
-        assert isinstance(source_start, (int, str)), source_start
-        assert isinstance(target_start, (int, str)), target_start
+        assert isinstance(src_sheet_name, (str, int, float))
+        assert isinstance(tgt_sheet_name, (str, int, float))
+        assert isinstance(source_start, int), source_start
+        assert isinstance(target_start, int), target_start
         # get Sheet obj from name or index if needed
-        if not isinstance(source_sheet, Office.get_sheet_class()):
-            source_sheet = model[source_sheet]
-        if not isinstance(target_sheet, Office.get_sheet_class()):
-            target_sheet = model[target_sheet]
+        source_sheet = model[tgt_sheet_name]
+        target_sheet = model[tgt_sheet_name]
+        assert isinstance(source_sheet, Sheet)
+        assert isinstance(target_sheet, Sheet)
+        source_sheet.reference_row_index = source_start
+        target_sheet.reference_row_index = target_start
         # get integer from string indices if needed.
         # checking to ensure strings are convertible should have already
         # taken place.
@@ -2972,7 +3020,8 @@ class PreliminarySettings(PyLeadDlg):
             return  # does not move on if any fields are not valid
         # check that source and target sheets have detectable 
         # column headers
-        self.check_sheets_have_column_headers()
+        if not self.check_sheets_have_column_headers():
+            return
         self.accept()
         
     def check_sheets_have_column_headers(self) -> bool:
@@ -3003,7 +3052,22 @@ class PreliminarySettings(PyLeadDlg):
         """
         assert isinstance(sheet_name, str)
         assert isinstance(header_index, int)
-
+        sheet = model[sheet_name]
+        assert isinstance(sheet, Sheet)
+        sheet.reference_row_index = header_index
+        if len([
+            col.name for col in sheet.columns
+            if col.name is not None
+        ]) == 0:
+            InfoMessage(
+                parent=self,
+                title="No Columns Found",
+                main='No Columns found in sheet',
+                secondary='Sheet %s has no columns that have headers at row '
+                          'index %s (0-based).' % (repr(sheet_name),
+                                                   header_index))
+            return False
+        return True
 
     @property
     def settings(self):
