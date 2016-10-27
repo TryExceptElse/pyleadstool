@@ -1,7 +1,5 @@
 from leadmacro import Associations
 
-from tempfile import TemporaryFile
-
 from unittest import TestCase
 
 

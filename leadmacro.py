@@ -178,7 +178,7 @@ class Sheet:
 
     def __init__(
             self,
-            uno_sheet,
+            i7e_sheet,
             reference_row_index=0,
             reference_column_index=0
     ) -> None:
@@ -380,11 +380,27 @@ class LineSeries:
             return self.get_by_name(item)
 
     def __iter__(self):
+        """
+        Returns Generator that iterates over columns in LineSeries
+        :return: Generator<Line>
+        """
         for cell in self.reference_line:
             if self._contents_type == 'rows':
                 yield cell.row
             elif self._contents_type == 'columns':
                 yield cell.column
+                
+    def __len__(self):
+        """
+        Returns size of LineSeries
+        :return: int
+        """
+        count = 0
+        try:
+            while self.__iter__().__next__():
+                count += 1
+        except StopIteration:
+            return count
 
     def get_by_name(self, name: int or float or str):
         """
@@ -714,14 +730,27 @@ class Cell:
 
     @property
     def x(self):
-        raise NotImplementedError
+        """
+        Gets x position of cell
+        :return: int
+        """
+        return self.position[0]
 
     @property
-    def y(self):
-        return NotImplementedError
+    def y(self) -> int:
+        """
+        Gets y position of cell
+        :return: int
+        """
+        return self.position[1]
+
+    def __repr__(self) -> str:
+        return 'Cell(%s, %s) Value: %s' % (
+            self.sheet, self.position, self.value.__repr__()
+        )
 
     def __str__(self) -> str:
-        return 'Cell[(%s), Value: %s' % (self.position, self.value)
+        return 'Cell[%s, Value: %s]' % (self.position, self.value.__repr__())
 
 
 class CellLine:
@@ -738,6 +767,12 @@ class CellLine:
 
     def __init__(self, sheet: Sheet, axis: str, index: int) -> None:
         assert axis in ('x', 'y')
+        if not isinstance(sheet, Sheet):
+            raise TypeError('CellLine Constructor sheet arg should be a Sheet.'
+                            ' Got instead: %s' % sheet.__repr__())
+        if not isinstance(index, int):
+            raise TypeError('CellLine __init__ index arg should be int. Got: '
+                            '%s' % index.__repr__())
         self.sheet = sheet
         self.axis = axis
         self.index = index
@@ -746,18 +781,23 @@ class CellLine:
         return self
 
     def __next__(self) -> Cell:
+        # set starting x, y values
         x, y = (self.index, self.i) if self.axis == 'y' else \
             (self.i, self.index)
-        cell = self.sheet.get_cell((x, y))
+        cell = self.sheet.get_cell((x, y))  # get first cell
+        # if cell is empty, look to see if a cell with a value follows.
         if cell.string == '' and self.i > self.highest_inhabited_i:
-            for x in range(1, MAX_CELL_GAP):
-                test_x, test_y = (self.index, self.i + x) if \
-                    self.axis == 'y' else (self.i + x, self.index)
+            for i in range(1, MAX_CELL_GAP):
+                test_x, test_y = (self.index, self.i + i) if \
+                    self.axis == 'y' else (self.i + i, self.index)
                 test_cell = self.sheet.get_cell((test_x, test_y))
                 if test_cell.string != '':
-                    self.highest_inhabited_i = self.i + x
+                    # if there is, mark that index as the highest i searched
+                    # and break.
+                    self.highest_inhabited_i = self.i + i
                     break
             else:
+                # otherwise end iteration
                 raise StopIteration()
         self.i += 1
         return cell
@@ -799,16 +839,21 @@ class Office:
         """
 
         class Model(Model):
-            def __init__(self):
-                self.active_app = xw.apps[0]  # get first app open
+            def __init__(self, app_: xw.App=None):
+                if app_:
+                    self.active_app = app_
+                else:
+                    self.active_app = xw.apps[0]  # get first app open
                 # there should be only one open at a given time usually,
                 # if any.
 
             def sheet_exists(self, *sheet_name: str) -> str:
                 """
                 Tests if sheet exists in any book.
-                :param sheet_name_: str
-                :return: bool
+                May be passed multiple sheet names.
+                Returns first passed name that exists in books, or None
+                :param sheet_name: str
+                :return: str
                 """
                 for sheet_name_ in sheet_name:
                     if "::" in sheet_name_:
@@ -825,8 +870,8 @@ class Office:
                             return sheet_name_
                     else:
                         # otherwise just find the sheet name
-                        for book in self.books:
-                            if sheet_name_ in book.sheets:
+                        for sheet in self._xw_sheets:
+                            if sheet_name_ == sheet.name:
                                 return sheet_name_
 
             def __getitem__(self, item: str or int):
@@ -843,9 +888,11 @@ class Office:
                     )
                 else:
                     # otherwise just look everywhere
-                    for book in self.books:
-                        if item in book.sheets:
-                            return Office.XW.Sheet(book.sheets[item])
+                    for sheet in self._xw_sheets:
+                        if sheet.name == item:
+                            return Office.XW.Sheet(
+                                sheet
+                            )
 
             @property
             def books(self):
@@ -983,6 +1030,14 @@ class Office:
                 return self.get_iterator(axis='y')
 
         class Cell(Cell):
+
+            def set_color(self, color: int or list or tuple) -> None:
+                color = Color(color)
+                self._range.color = color.rgb
+
+            def clear(self):
+                self._range.clear()
+
             @property
             def _range(self):
                 """
@@ -992,7 +1047,8 @@ class Office:
                 x, y = self.position
                 x += 1
                 y += 1  # correct to excel 1 based index
-                return self.sheet.i7e_sheet.range(x, y)
+                # XW passes position tuples as row, column
+                return self.sheet.i7e_sheet.range(y, x)
 
             @property
             def value(self) -> int or float or str or None:
@@ -1011,27 +1067,12 @@ class Office:
                 else:
                     return 0.
 
-            def set_color(self, color: int or list or tuple) -> None:
-                color = Color(color)
-                self._range.color = color.rgb
-
             @property
             def string(self):
                 if self.value is not None:
                     return str(self.value)
                 else:
                     return ''
-
-            def clear(self):
-                self._range.clear()
-
-            @property
-            def x(self):
-                return self.position[0]
-
-            @property
-            def y(self):
-                return self.position[1]
 
     class Uno(Interface):
         """
@@ -1360,22 +1401,6 @@ class Office:
                 assert isinstance(new_float, (int, float))
                 new_value = float(new_float)
                 self._source_cell.setValue(new_value)
-
-            @property
-            def x(self) -> int:
-                """
-                Gets x position of cell
-                :return: int
-                """
-                return self.position[0]
-
-            @property
-            def y(self) -> int:
-                """
-                Gets y position of cell
-                :return: int
-                """
-                return self.position[1]
 
     @staticmethod
     def get_interface() -> str or None:
@@ -2945,7 +2970,40 @@ class PreliminarySettings(PyLeadDlg):
             # field.check_valid displays info dialogs to user
             # if not valid.
             return  # does not move on if any fields are not valid
+        # check that source and target sheets have detectable 
+        # column headers
+        self.check_sheets_have_column_headers()
         self.accept()
+        
+    def check_sheets_have_column_headers(self) -> bool:
+        """
+        Checks that source and target sheets have column headers at
+        passed row indices.
+        :return: bool 
+        """
+        src_sheet_name = self.settings[SOURCE_SHEET_KEY]
+        src_header_i = self.settings[SOURCE_START_KEY]
+        tgt_sheet_name = self.settings[TARGET_SHEET_KEY]
+        tgt_header_i = self.settings[TARGET_START_KEY]
+        return all([
+            self.check_sheet_has_headers(src_sheet_name, src_header_i),
+            self.check_sheet_has_headers(tgt_sheet_name, tgt_header_i)
+        ])  # return bool whether or not all sheets have column headers
+        
+    def check_sheet_has_headers(
+            self, 
+            sheet_name: str, 
+            header_index: int
+    ) -> bool:
+        """
+        Checks that passed 
+        :param sheet_name: str
+        :param header_index: 
+        :return: 
+        """
+        assert isinstance(sheet_name, str)
+        assert isinstance(header_index, int)
+
 
     @property
     def settings(self):
@@ -3726,6 +3784,13 @@ def lead_app():
     print('Python version %s.%s.%s %s. serial: %s' % sys.version_info)
     print('started app')
 
+    # create model handler object and in doing so,
+    # check interface is working correctly
+    global model
+    global app
+    model = Office.get_model()
+    app = QtW.QApplication([''])  # expects list of strings.
+
     # get settings
     settings = Settings(OS.get_app_data_path())
     # get settings from prelim dialog
@@ -3775,11 +3840,8 @@ def lead_app():
 
     settings.save()  # save settings for next run
 
-
-# create model handler object and in doing so,
-# check PyUno model is a Workbook
-model = Office.get_model()
-app = QtW.QApplication([''])  # expects list of strings.
+model = None
+app = None
 
 if __name__ == '__main__':
     lead_app()
