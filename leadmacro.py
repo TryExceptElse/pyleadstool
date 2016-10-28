@@ -492,7 +492,7 @@ class LineSeries:
 
 
 class Line:
-    sheet = None  # these are all to be set on init in subclasses
+    sheet = None  # these are to be set on init in subclasses
     index = None  # index of this line.
 
     def __init__(
@@ -538,6 +538,10 @@ class Line:
         for i, cell in enumerate(self._reference_line):
             if cell.value == reference:
                 return self.get_cell_by_index(i)
+
+    def get_iterator(self, axis: str) -> CellLine:
+        assert axis == 'x' or axis == 'y'
+        return CellLine(self.sheet, axis, self.index)
 
     def clear(self, include_header: bool = False):
         """
@@ -604,8 +608,7 @@ class Line:
 
 class Column(Line):
     """
-    # this class exists for typing purposes, to provide a
-    # common parent for Rows
+    Abstract Column class, extended by Office.XW.Column and Office.XW.Row
     """
 
     def __getitem__(self, cell_identifier):
@@ -649,8 +652,7 @@ class Column(Line):
 
 class Row(Line):
     """
-    # this class exists for typing purposes, to provide a
-    # common parent for Rows
+    Abstract Row obj. Extended by Office.XW.Row and Office.Uno.Row
     """
 
     def __getitem__(self, cell_identifier):
@@ -1018,10 +1020,6 @@ class Office:
                     count += 1
                 return count
 
-            def get_iterator(self, axis: str) -> CellLine:
-                assert axis == 'x' or axis == 'y'
-                return CellLine(self.sheet, axis, self.index)
-
         class Column(Line, Column):
             def __init__(
                     self,
@@ -1046,7 +1044,7 @@ class Office:
                 return Office.XW.Cell(self.sheet, (self.index, index))
 
             def __iter__(self):
-                return self.get_iterator(axis='x')
+                return self.get_iterator(axis='y')
 
         class Row(Line, Row):
             def __init__(
@@ -1073,7 +1071,7 @@ class Office:
                 return Office.XW.Cell(self.sheet, (index, self.index))
 
             def __iter__(self):
-                return self.get_iterator(axis='y')
+                return self.get_iterator(axis='x')
 
         class Cell(Cell):
 
@@ -1294,10 +1292,7 @@ class Office:
                 Returns iterable line of cells
                 :return: Iterable
                 """
-                return CellLine(
-                    sheet=self.sheet,
-                    axis='y',
-                    index=self.index)
+                return self.get_iterator(axis='y')
 
             def get_cell_by_index(self, index: int) -> Cell:
                 """
@@ -1329,10 +1324,7 @@ class Office:
                 )
 
             def __iter__(self):
-                return CellLine(
-                    sheet=self.sheet,
-                    axis='x',
-                    index=self.index)
+                self.get_iterator(axis='x')
 
             def get_cell_by_index(self, index: int) -> Cell:
                 """
