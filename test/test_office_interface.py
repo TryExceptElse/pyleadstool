@@ -89,6 +89,79 @@ class TestLineSeries(TestOfficeObj):
         self.assertIsInstance(columns[1], leadmacro.Column)
         self.assertEqual('headerB', columns[1].name)
 
+
 class TestRow(TestOfficeObj):
     def test_row_iterator_returns_each_cell_in_row(self):
-        row = leadmacro.Office.XW.Row()
+        row = leadmacro.Office.XW.Row(self.sheet, 2, 0)
+        cells = [cell for cell in row]
+        self.assertEqual(2, len(cells))
+        self.assertIsInstance(cells[0], leadmacro.Cell)
+        self.assertEqual('a3', cells[0].value)
+        self.assertIsInstance(cells[1], leadmacro.Cell)
+        self.assertEqual('b3', cells[1].value)
+
+
+class TestCell(TestOfficeObj):
+    def setUp(self):
+        super().setUp()
+        self.cell = leadmacro.Office.XW.Cell(self.sheet, (0, 2))
+        self.cell2 = leadmacro.Office.XW.Cell(self.sheet, (3, 2))
+        self.cell3 = leadmacro.Office.XW.Cell(self.sheet, (4, 2))
+        self.cell4 = leadmacro.Office.XW.Cell(self.sheet, (5, 2))
+
+    def test_cell_value_returns_str_value_correctly(self):
+        self.assertEqual('a3', self.cell.value)
+
+    def test_cell_string_returns_content_string_in_string_cell(self):
+        self.assertEqual('a3', self.cell.string)
+
+    def test_cell_float_returns_zero_when_cell_has_string_content(self):
+        self.assertEqual(0, self.cell.float)
+
+    def test_cell_value_returns_number_when_cell_contains_number(self):
+        self.assertEqual(123456, self.cell2.value)
+
+    def test_cell_string_returns_string_of_number_when_cell_contains_num(self):
+        self.assertEqual('123456', self.cell2.string)
+
+    def test_cell_float_returns_number_when_cell_contents_is_number(self):
+        self.assertEqual(123456, self.cell2.float)
+
+    def test_cell_value_returns_none_when_cell_content_is_empty(self):
+        self.assertIsNone(self.cell3.value)
+
+    def test_cell_string_is_zero_length_empty_string_when_cell_is_empty(self):
+        self.assertEqual('', self.cell3.string)
+
+    def test_cell_float_is_0_when_cell_content_is_empty(self):
+        self.assertEqual(0, self.cell3.float)
+
+    def test_value_without_whitespace_returns_value_when_no_whitespace(self):
+        self.assertEqual('a3', self.cell.value_without_whitespace)
+
+    def test_value_without_whitespace_returns_stripped_str(self):
+        self.assertEqual(
+            'whitespace string',
+            self.cell4.value_without_whitespace
+        )
+
+    def test_has_whitespace_returns_correct_bool(self):
+        self.assertFalse(self.cell.has_whitespace)
+
+    def test_has_whitespace_returns_true_when_present(self):
+        self.assertTrue(self.cell4.has_whitespace)
+
+    def test_x_returns_correct_int(self):
+        self.assertEqual(0, self.cell.x)
+
+    def test_y_returns_correct(self):
+        self.assertEqual(2, self.cell.y)
+
+    def test_row_returns_row_including_cell(self):
+        self.assertIsInstance(self.cell.row, leadmacro.Row)
+        self.assertEqual(2, self.cell.row.index)
+
+    def test_column_returns_column_including_cell(self):
+        col = self.cell4.column
+        self.assertIsInstance(col, leadmacro.Column)
+        self.assertEqual(3, col.index)
