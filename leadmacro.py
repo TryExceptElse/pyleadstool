@@ -385,6 +385,9 @@ class LineSeries:
     """Class storing collection of Line, Column, or Row objects"""
 
     def __init__(self, reference_line) -> None:
+        if not isinstance(reference_line, Line):
+            raise TypeError('Expected LineSeries to be passed reference line.'
+                            'Got instead: %s' % repr(reference_line))
         self.reference_line = reference_line
 
     def __getitem__(self, item: int or float or str):
@@ -539,7 +542,7 @@ class Line:
             if cell.value == reference:
                 return self.get_cell_by_index(i)
 
-    def get_iterator(self, axis: str) -> CellLine:
+    def get_iterator(self, axis: str):
         assert axis == 'x' or axis == 'y'
         return CellLine(self.sheet, axis, self.index)
 
@@ -887,7 +890,7 @@ class Office:
         """
 
         class Model(Model):
-            def __init__(self, app_: xw.App=None):
+            def __init__(self, app_=None):
                 if app_:
                     self.active_app = app_
                 else:
@@ -3582,7 +3585,6 @@ class Settings(dict):
             print('Could not load settings from file.')
             print(sys.exc_info())
             raise IOError('Could not load settings from existing file')
-            # todo: if cannot find file, ask to create it.
         except EOFError:
             print('No information in file')
             return {}
