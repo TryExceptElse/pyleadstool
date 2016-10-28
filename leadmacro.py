@@ -1086,10 +1086,12 @@ class Office:
                 return self.get_iterator(axis='x')
 
         class Cell(Cell):
-
             def set_color(self, color: int or list or tuple) -> None:
-                color = Color(color)
-                self._range.color = color.rgb
+                if color >= 0:
+                    color = Color(color)
+                    self._range.color = color.rgb
+                elif color == -1:
+                    self._range.color = None
 
             @property
             def _range(self):
