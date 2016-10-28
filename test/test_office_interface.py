@@ -1,3 +1,12 @@
+"""
+Runs tests on XW interface
+
+AN EXCEL APP IS LAUNCHED FOR THESE TESTS.
+IF NOT ALLOWED TO FINISH, OR TESTS OTHERWISE EXITS,
+MAKE SURE TO CLOSE EXCEL.EXE PROCESS.
+THESE TESTS REQUIRE EXCEL (2007+?) AND XLWINGS.
+"""
+
 from unittest import TestCase
 
 try:
@@ -108,6 +117,7 @@ class TestCell(TestOfficeObj):
         self.cell2 = leadmacro.Office.XW.Cell(self.sheet, (3, 2))
         self.cell3 = leadmacro.Office.XW.Cell(self.sheet, (4, 2))
         self.cell4 = leadmacro.Office.XW.Cell(self.sheet, (5, 2))
+        self.cell5 = leadmacro.Office.XW.Cell(self.sheet, (6, 2))
 
     def test_cell_value_returns_str_value_correctly(self):
         self.assertEqual('a3', self.cell.value)
@@ -148,11 +158,20 @@ class TestCell(TestOfficeObj):
             self.cell4.value_without_whitespace
         )
 
-    def test_has_whitespace_returns_correct_bool(self):
+    def test_value_without_whitespace_returns_stripped_str2(self):
+        self.assertEqual(
+            'whitespace string',
+            self.cell5.value_without_whitespace
+        )
+
+    def test_has_whitespace_returns_false_when_not_present(self):
         self.assertFalse(self.cell.has_whitespace)
 
-    def test_has_whitespace_returns_true_when_present(self):
+    def test_has_whitespace_returns_true_when_present_w_line_return(self):
         self.assertTrue(self.cell4.has_whitespace)
+
+    def test_has_whitespace_returns_true_when_present_w_o_line_return(self):
+        self.assertTrue(self.cell5.has_whitespace)
 
     def test_x_returns_correct_int(self):
         self.assertEqual(0, self.cell.x)

@@ -751,7 +751,7 @@ class Cell:
         :return:
         """
         if isinstance(self.value, str):
-            return self.value.strip()
+            return ' '.join(self.value.split())
         else:
             return self.value
 
@@ -1117,7 +1117,11 @@ class Office:
             @property
             def string(self):
                 if self.value is not None:
-                    return str(self.value)
+                    string = str(self.value)
+                    # remove unneeded digits
+                    if isinstance(self.value, float) and string[-2:] == '.0':
+                        string = string[:-2]
+                    return string
                 else:
                     return ''
 
