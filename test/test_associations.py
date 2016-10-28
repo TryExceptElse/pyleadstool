@@ -19,4 +19,4 @@ class TestAssociations(TestCase):
         self.assertEqual('test_value_a2', self.assoc['test_key_a'][1])
 
     def test_assoc_can_be_cleaned(self):
-        limit
+        pass

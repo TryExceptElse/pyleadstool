@@ -36,7 +36,7 @@ This is intended to be run as a LibreOffice Calc macro
 
 Contents:
 
-PyUno handling
+Office Interface handling
 Translations
 GUI
 
@@ -2411,12 +2411,12 @@ class TranslationDialog(PyLeadDlg):
         assert isinstance(source_start, int), source_start
         assert isinstance(target_start, int), target_start
         # get Sheet obj from name or index if needed
-        source_sheet = model[tgt_sheet_name]
+        source_sheet = model[src_sheet_name]
         target_sheet = model[tgt_sheet_name]
         assert isinstance(source_sheet, Sheet)
         assert isinstance(target_sheet, Sheet)
-        source_sheet.reference_row_index = source_start
-        target_sheet.reference_row_index = target_start
+        source_sheet.reference_row_index = source_start - 1
+        target_sheet.reference_row_index = target_start - 1
         # get integer from string indices if needed.
         # checking to ensure strings are convertible should have already
         # taken place.
@@ -2587,6 +2587,7 @@ class TranslationDialog(PyLeadDlg):
             self.auto_fill()  # attempt to fill in cells left empty by presets
 
         def populate_table(self, translation_dict_list=None):
+            assert len(self.tgt_col_names) > 0
             for y, target_column_name in enumerate(self.tgt_col_names):
                 translation_dict = self.find_column_translation_dict(
                     target_column_name=target_column_name,
@@ -2615,13 +2616,13 @@ class TranslationDialog(PyLeadDlg):
             x = self.get_option_index(self.SourceColumnDropDown)
             filled_tgt_columns = []
             while True:  # iterate over rows in table
-                tgt_row_name = self.horizontalHeaderItem(y)
+                tgt_row_name_item = self.horizontalHeaderItem(y)
                 # this returns None if invalid index is passed.
-                if tgt_row_name is None:
+                if tgt_row_name_item is None:
                     break
-                assert isinstance(tgt_row_name, QtW.QTableWidgetItem), \
-                    "Got: %s" % tgt_row_name
-                tgt_row_name = tgt_row_name.text()
+                assert isinstance(tgt_row_name_item, QtW.QTableWidgetItem), \
+                    "Got: %s" % tgt_row_name_item
+                tgt_row_name = tgt_row_name_item.text()
                 drop_down_menu = self.cellWidget(y, x)
                 assert isinstance(
                     drop_down_menu, self.SourceColumnDropDown), \
@@ -2634,17 +2635,20 @@ class TranslationDialog(PyLeadDlg):
                             drop_down_menu.setCurrentText(src_col_name)
                             filled_tgt_columns.append(tgt_row_name)
                 y += 1
-            msg = QtW.QMessageBox()
-            msg.setDetailedText(
-                "The following target columns have been autofilled:\n%s"
-                % '\n'.join(filled_tgt_columns)
-            )
-            msg.setWindowTitle("Auto-Filled Columns")
-            msg.setModal(True)
-            msg.setText("One or more columns have been automatically filled"
-                        "based on previous selections.\n"
-                        "Please ensure all auto-filled columns are correct.")
-            msg.exec()
+            if filled_tgt_columns:
+                msg = QtW.QMessageBox()
+                msg.setDetailedText(
+                    "The following target columns have been autofilled:\n%s"
+                    % '\n'.join(filled_tgt_columns)
+                )
+                msg.setWindowTitle("Auto-Filled Columns")
+                msg.setModal(True)
+                msg.setText(
+                    "One or more columns have been automatically filled"
+                    "based on previous selections.\n"
+                    "Please ensure all auto-filled columns are correct."
+                )
+                msg.exec()
 
         def store_col_associations(self) -> bool:
             """
@@ -3039,9 +3043,9 @@ class PreliminarySettings(PyLeadDlg):
         :return: bool 
         """
         src_sheet_name = self.settings[SOURCE_SHEET_KEY]
-        src_header_i = self.settings[SOURCE_START_KEY]
+        src_header_i = self.settings[SOURCE_START_KEY] - 1
         tgt_sheet_name = self.settings[TARGET_SHEET_KEY]
-        tgt_header_i = self.settings[TARGET_START_KEY]
+        tgt_header_i = self.settings[TARGET_START_KEY] - 1
         return all([
             self.check_sheet_has_headers(src_sheet_name, src_header_i),
             self.check_sheet_has_headers(tgt_sheet_name, tgt_header_i)
