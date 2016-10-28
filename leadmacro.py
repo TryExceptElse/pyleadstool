@@ -1091,9 +1091,6 @@ class Office:
                 color = Color(color)
                 self._range.color = color.rgb
 
-            def clear(self):
-                self._range.clear()
-
             @property
             def _range(self):
                 """
@@ -1772,7 +1769,7 @@ class Translation:
                 'checked '
                 'columns' % len(whitespace_positions))
         InfoMessage(
-            parent=self,
+            parent=self._dialog_parent,
             title='Whitespace Found',
             main='Whitespace found in %s cells' % len(
                 whitespace_positions),
@@ -1850,7 +1847,7 @@ class Translation:
             secondary_string = '%s Cell rows containing duplicate ' \
                                'values were removed' % n_rows_w_duplicates,
         InfoMessage(
-            parent=self,
+            parent=self._dialog_parent,
             title='Duplicate Values',
             main='%s Duplicate cell values found' % duplicate_positions,
             secondary=secondary_string,
