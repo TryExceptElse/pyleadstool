@@ -380,6 +380,9 @@ class Sheet:
     def rows(self):
         return LineSeries(reference_line=self.reference_column)
 
+    def __str__(self) -> str:
+        raise NotImplementedError
+
 
 class LineSeries:
     """Class storing collection of Line, Column, or Row objects"""
@@ -1014,6 +1017,12 @@ class Office:
                     self,
                     column_index,
                     self.reference_row_index
+                )
+
+            def __str__(self) -> str:
+                return 'Sheet[%s::%s]' % (
+                    self.i7e_sheet.name,
+                    self.i7e_sheet.book.name,
                 )
 
         class Line(Line):

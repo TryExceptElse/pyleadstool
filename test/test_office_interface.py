@@ -89,6 +89,10 @@ class TestCellLine(TestOfficeObj):
 
 
 class TestLineSeries(TestOfficeObj):
+    def setUp(self):
+        super().setUp()
+        self.sheet.reference_row_index = 3
+
     def test_line_series_returns_each_column_in_turn(self):
         reference_line = leadmacro.Office.XW.Row(self.sheet, 3, 0)
         columns = [column for column in leadmacro.LineSeries(reference_line)]
@@ -100,14 +104,59 @@ class TestLineSeries(TestOfficeObj):
 
 
 class TestRow(TestOfficeObj):
+    def setUp(self):
+        super().setUp()
+        self.sheet.reference_column_index = 1
+        self.sheet.reference_row_index = 3
+
     def test_row_iterator_returns_each_cell_in_row(self):
         row = leadmacro.Office.XW.Row(self.sheet, 2, 0)
         cells = [cell for cell in row]
-        self.assertEqual(2, len(cells))
+        self.assertEqual(7, len(cells))
         self.assertIsInstance(cells[0], leadmacro.Cell)
         self.assertEqual('a3', cells[0].value)
         self.assertIsInstance(cells[1], leadmacro.Cell)
         self.assertEqual('b3', cells[1].value)
+
+    def test_row_name_cell_is_correct_cell(self):
+        row = leadmacro.Office.XW.Row(
+            self.sheet,
+            row_index=2,
+            reference_row_index=3
+        )
+        self.assertEqual('b3', row.name)
+
+    def test_row_name_cell_index_is_correct_int(self):
+        row = leadmacro.Office.XW.Row(
+            self.sheet,
+            row_index=2,
+            reference_row_index=3
+        )
+        self.assertEqual(1, row.name_cell_index)
+
+    def test_len_method_returns_correct_int(self):
+        row = leadmacro.Office.XW.Row(
+            self.sheet,
+            row_index=2,
+            reference_row_index=3
+        )
+        self.assertEqual(7, len(row))
+
+    def test_get_index_returns_correct_cell(self):
+        row = leadmacro.Office.XW.Row(
+            self.sheet,
+            row_index=2,
+            reference_row_index=3
+        )
+        self.assertEqual('c3', row.get_cell_by_index(2).value)
+
+    def test_get_by_name_returns_correct_cell(self):
+        row = leadmacro.Office.XW.Row(
+            self.sheet,
+            row_index=2,
+            reference_row_index=3
+        )
+        self.assertEqual('b3', row.get_cell_by_reference('headerB').value)
 
 
 class TestCell(TestOfficeObj):
