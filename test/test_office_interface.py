@@ -136,6 +136,9 @@ class TestCell(TestOfficeObj):
     def test_cell_float_is_0_when_cell_content_is_empty(self):
         self.assertEqual(0, self.cell3.float)
 
+    def test_value_returns_cell_value_with_whitespace(self):
+        self.assertEqual('\nwhitespace    string', self.cell4.value)
+
     def test_value_without_whitespace_returns_value_when_no_whitespace(self):
         self.assertEqual('a3', self.cell.value_without_whitespace)
 
@@ -164,4 +167,4 @@ class TestCell(TestOfficeObj):
     def test_column_returns_column_including_cell(self):
         col = self.cell4.column
         self.assertIsInstance(col, leadmacro.Column)
-        self.assertEqual(3, col.index)
+        self.assertEqual(5, col.index)
