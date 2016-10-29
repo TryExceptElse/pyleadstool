@@ -1531,7 +1531,6 @@ class Translation:
             source_sheet: Sheet,
             target_sheet: Sheet,
             column_translations=None,
-            row_deletions=None,
             source_start_row=1,
             target_start_row=1,
             whitespace_action=WHITESPACE_HIGHLIGHT_STR,
@@ -1547,7 +1546,7 @@ class Translation:
         self._dialog_parent = dialog_parent
         self._source_sheet = source_sheet
         self._target_sheet = target_sheet
-        self._row_deletions = row_deletions if row_deletions else set()
+        self._row_deletions = set()
         self._src_cell_transforms = {}
         self._tgt_cell_transforms = {}
         self._source_start_row = source_start_row
@@ -1842,7 +1841,7 @@ class Translation:
         secondary_string = ''
         if self.duplicate_action == DUPLICATE_HIGHLIGHT_STR:
             secondary_string = '%s Cell values were highlighted in ' \
-                               'checked columns' % duplicate_positions
+                               'checked columns' % len(duplicate_positions)
         elif self.duplicate_action == DUPLICATE_REMOVE_ROW_STR:
             n_rows_w_duplicates = len(set(
                 [pos[1] for pos in duplicate_positions]))
@@ -2079,8 +2078,7 @@ class ColumnTranslation:
         if (
             bool(source_column_i is None) ==
             bool(source_column_name is None)
-        ):  # no idea why, but without 'is True' this will always
-            # raise the ValueError
+        ):
             raise ValueError(
                 'Source column index or name must be passed, but not both. '
                 'Got args source_column_i: %s (%s) and source_column_name: %s'
@@ -2090,8 +2088,7 @@ class ColumnTranslation:
         if (
             bool(target_column_i is None) ==
             bool(target_column_name is None)
-        ):  # no idea why, but without 'is True' this will always
-            # raise the ValueError
+        ):
             raise ValueError(
                 'Target column index or name must be passed, but not both. '
                 'Got args target_column_i: %s (%s) and target_column_name: %s'
@@ -2344,6 +2341,46 @@ class ColumnTranslation:
             if value in values:
                 yield cell
             values.add(value)
+
+
+class RowTranslation:
+    """
+    Collection of CellTransforms with a common y coordinate.
+    """
+
+
+class CellTransform:
+    def __init__(self, src_sheet, tgt_sheet, src_pos, tgt_pos):
+        self.src_pos = src_pos
+        self.tgt_pos = tgt_pos
+        self.src_sheet = src_sheet
+        self.tgt_sheet = tgt_sheet
+
+    def move_up(self, distance: int):
+        """
+        Moves tgt position up by passed distance in cells.
+        :param distance: int
+        :return: None
+        """
+        x, y = self.tgt_pos
+        y -= distance
+        if y < 0:
+            raise ValueError('moving cell at %s up by %s would result in a '
+                             'negative y position' % (self.tgt_pos, distance))
+        self.tgt_pos = x, y
+
+    def move_down(self, distance: int):
+        x, y = self.tgt_pos
+        y += distance
+        self.tgt_pos = x, y
+
+    @property
+    def src_cell(self):
+        return self.src_sheet.get_cell(self.src_pos)
+
+    @property
+    def tgt_cell(self):
+        return self.tgt_sheet.get_cell(self.tgt_pos)
 
 
 class CellTransform:
