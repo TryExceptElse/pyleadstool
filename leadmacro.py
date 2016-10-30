@@ -2798,7 +2798,11 @@ class TranslationDialog(PyLeadDlg):
 
 
 class PreliminarySettings(PyLeadDlg):
-    class SettingField(QtW.QLineEdit):
+    class SettingField(QtW.QComboBox):
+        def __init__(self):
+            super().__init__()
+
+    class SheetField(SettingField, QtW.QComboBox):
         # string appearing next to field in settings table
         side_string = ''  # replaced by child classes
         # name under which to store field str
@@ -2811,7 +2815,7 @@ class PreliminarySettings(PyLeadDlg):
                 'Expected start_str to be str, instead %s was passed %s.' \
                 % (self.__class__.__name__, start_str)
             assert default_values is None or \
-                isinstance(default_values, (tuple, list)), \
+                   isinstance(default_values, (tuple, list)), \
                 '%s __init__ was passed %s for default_values. ' \
                 'That should not be' % (self.__name__, default_values)
             super().__init__()
@@ -2821,11 +2825,12 @@ class PreliminarySettings(PyLeadDlg):
                 self.default_strings = tuple(default_values) + \
                                        tuple(self.default_strings)
             # set text to default value
-            self.setText(str(self._find_default_value()))
+            self.set_options()
+            try:
+                self.setCurrentText(str(self._find_default_value()))
+            except:
+                pass
             self.gui_setup()
-
-        def _find_default_value(self):
-            raise NotImplementedError  # does nothing here.
 
         def gui_setup(self):
             pass  # does nothing here, inherited by child classes
@@ -2833,7 +2838,6 @@ class PreliminarySettings(PyLeadDlg):
         def check_valid(self):
             pass  # inherited
 
-    class SheetField(SettingField):
         def _find_default_value(self):
             # find default value
             if self.start_str:  # if a starting string has been passed,
@@ -2848,9 +2852,15 @@ class PreliminarySettings(PyLeadDlg):
                 else:
                     return ''
 
+        def set_options(self):
+            assert isinstance(model, Model)
+            sheets = model.sheet_names
+            assert all(isinstance(sheet, str) for sheet in sheets)
+            self.addItems(sheet for sheet in model.sheet_names)
+
         @property
         def value(self):
-            return self.text()
+            return self.currentText()
 
     class ImportSheetField(SheetField):
         """Gets name of sheet to import from"""
@@ -2860,10 +2870,10 @@ class PreliminarySettings(PyLeadDlg):
 
         def gui_setup(self):
             self.setToolTip('Sheet to import columns from')
-            self.setPlaceholderText('Import Sheet')
+            # self.setPlaceholderText('Import Sheet')
 
         def check_valid(self):
-            sheet_name = self.text()  # get text entered by user
+            sheet_name = self.currentText()  # get text entered by user
             assert isinstance(sheet_name, str)
             if model.sheet_exists(sheet_name):
                 return True
@@ -2892,10 +2902,10 @@ class PreliminarySettings(PyLeadDlg):
 
         def gui_setup(self):
             self.setToolTip('Sheet to export columns to')
-            self.setPlaceholderText('Export Sheet')
+            # self.setPlaceholderText('Export Sheet')
 
         def check_valid(self):
-            sheet_name = self.text()  # get text entered by user
+            sheet_name = self.currentText()  # get text entered by user
             assert isinstance(sheet_name, str)
             if model.sheet_exists(sheet_name):
                 return True
@@ -2916,8 +2926,34 @@ class PreliminarySettings(PyLeadDlg):
                               sheet_name
                 )
 
-    class StartLineField(SettingField):
+    class StartLineField(QtW.QLineEdit, SettingField):
+        # values to default to, in order of priority
         default_strings = '1',
+        # string appearing next to field in settings table
+        side_string = ''  # replaced by child classes
+        # name under which to store field str
+        dict_string = ''  # replaced by child classes
+
+        def __init__(self, start_str='', default_values=None):
+            assert isinstance(start_str, str), \
+                'Expected start_str to be str, instead %s was passed %s.' \
+                % (self.__class__.__name__, start_str)
+            assert default_values is None or \
+                   isinstance(default_values, (tuple, list)), \
+                '%s __init__ was passed %s for default_values. ' \
+                'That should not be' % (self.__name__, default_values)
+            super().__init__()
+            self.start_str = start_str
+            # add default values -before- standard defaults (order matters)
+            if default_values:
+                self.default_strings = tuple(default_values) + \
+                                       tuple(self.default_strings)
+            # set text to default value
+            self.setText(str(self._find_default_value()))
+            self.gui_setup()
+
+        def gui_setup(self):
+            pass  # does nothing here, inherited by child classes
 
         def _find_default_value(self):
             return self.default_strings[0]  # until a better method is
@@ -2929,7 +2965,7 @@ class PreliminarySettings(PyLeadDlg):
             elif not self.text().isdigit():
                 self._invalid_row('Value entered for %s ( %s ) does '
                                   'not appear to be an integer.' %
-                                  (self.side_string, self.text()))
+                                  (self.side_string, self.currentText()))
             elif self.value < 0:
                 self._invalid_row('%s cannot be negative. Got: %s.' %
                                   (self.side_string, self.value))
@@ -3037,9 +3073,28 @@ class PreliminarySettings(PyLeadDlg):
             return  # does not move on if any fields are not valid
         # check that source and target sheets have detectable 
         # column headers
+        if not self.check_sheets_are_not_identical():
+            return
         if not self.check_sheets_have_column_headers():
             return
         self.accept()
+
+    def check_sheets_are_not_identical(self):
+        """
+        Checks that source and target are different sheets
+        :return: bool
+        """
+        if self.settings[SOURCE_SHEET_KEY] == self.settings[TARGET_SHEET_KEY]:
+            InfoMessage(
+                parent=self,
+                title="Identical Sheets",
+                main='Source and target sheets appear to be the same',
+                secondary='Source and target sheets appear to both be set to'
+                          ' %s' % self.settings[SOURCE_SHEET_KEY]
+            )
+            return False
+        return True
+
 
     def check_sheets_have_column_headers(self) -> bool:
         """
