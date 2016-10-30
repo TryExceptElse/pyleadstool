@@ -100,10 +100,10 @@ CORAL = 0xFF7F50
 ORANGE = 0xBDB76B
 KHAKI = 0xF0E68C
 
-WHITESPACE_CELL_COLOR = FIREBRICK
-WHITESPACE_ROW_COLOR = CORAL
-DUPLICATE_CELL_COLOR = ORANGE
-DUPLICATE_ROW_COLOR = KHAKI
+WHITESPACE_CELL_COLOR = ORANGE
+WHITESPACE_ROW_COLOR = DEFAULT_COLOR
+DUPLICATE_CELL_COLOR = FIREBRICK
+DUPLICATE_ROW_COLOR = DEFAULT_COLOR
 
 # Settings Keys #
 
@@ -122,14 +122,13 @@ TARGET_COLUMN_INDEX_KEY = 'target_column_i'
 WHITESPACE_CHK_KEY = 'check_for_whitespace'
 DUPLICATE_CHK_KEY = 'check_for_duplicates'
 
-WHITESPACE_REMOVE_STR = 'delete'
-WHITESPACE_HIGHLIGHT_STR = 'highlight'
-WHITESPACE_IGNORE_STR = 'ignore'
+WHITESPACE_REMOVE_STR = 'Remove Whitespace'
+WHITESPACE_HIGHLIGHT_STR = 'Highlight'
+WHITESPACE_IGNORE_STR = 'Do nothing'
 
-DUPLICATE_REMOVE_ROW_STR = 'remove row'
-DUPLICATE_HIGHLIGHT_STR = 'highlight'
-DUPLICATE_IGNORE_STR = 'ignore'
-
+DUPLICATE_REMOVE_ROW_STR = 'Remove row'
+DUPLICATE_HIGHLIGHT_STR = 'Highlight'
+DUPLICATE_IGNORE_STR = 'Do nothing'
 
 ###############################################################################
 # BOOK INTERFACE
@@ -721,6 +720,9 @@ class Cell:
     def set_color(self, color: int or list or tuple) -> None:
         raise NotImplementedError
 
+    def get_color(self) -> int:
+        raise NotImplementedError
+
     def remove_whitespace(self):
         self.value = self.value_without_whitespace
 
@@ -897,7 +899,13 @@ class Office:
                 if app_:
                     self.active_app = app_
                 else:
-                    self.active_app = xw.apps[0]  # get first app open
+                    try:
+                        self.active_app = xw.apps[0]  # get first app open
+                    except IndexError:
+                        raise EnvironmentError(
+                            'Office does not appear to have any running '
+                            'instances.'
+                        )
                 # there should be only one open at a given time usually,
                 # if any.
 
@@ -1092,6 +1100,12 @@ class Office:
                     self._range.color = color.rgb
                 elif color == -1:
                     self._range.color = None
+
+            def get_color(self) -> int:
+                color_int = self._range.color
+                if color_int is None:
+                    color_int = -1
+                return color_int
 
             @property
             def _range(self):
@@ -1370,9 +1384,8 @@ class Office:
                     color_int = color[0] * 256 ** 2 + color[1] * 256 + color[2]
                 self._source_cell.CellBackColor = color_int
 
-            def remove_whitespace(self) -> None:
-                """Removes whitespace from cell"""
-                self.value = self.value_without_whitespace
+            def get_color(self) -> int:
+                return self._source_cell.CellBackColor
 
             @property
             def _uno_sheet(self):
@@ -1558,6 +1571,145 @@ class Translation:
         self._column_translations = []
         self.add_column_translation(*column_translations)
 
+        self.translation_rows = {}  # y_index: set(x_indices)
+        self.cell_translation_generators = []  # x_index: generator
+        self.cell_translations = {}  # src_pos: CellTranslation
+        
+        self.get_cell_generators()
+        self.generate_cell_translations()
+
+        if self.duplicate_action == DUPLICATE_HIGHLIGHT_STR:
+            self.highlight_translation_rows_with_duplicates()
+        elif self.duplicate_action == DUPLICATE_REMOVE_ROW_STR:
+            self.remove_translation_rows_with_duplicates()
+
+        if self.whitespace_action == WHITESPACE_HIGHLIGHT_STR:
+            self.highlight_translation_rows_with_whitespace()
+        elif self.whitespace_action == WHITESPACE_REMOVE_STR:
+            self.remove_whitespace_in_translation_rows()
+
+    def commit(self):
+        print('commiting translations')
+        self.clear_target()
+        self.apply_translation_rows()
+
+    def apply_translation_rows(self):
+        for y in self.translation_rows:
+            t_row = self.translation_rows[y]
+            assert isinstance(t_row, TranslationRow)
+            t_row.apply(self.target_sheet, y)
+        
+    def get_cell_generators(self):
+        for column_translation in self.column_translations:
+            assert isinstance(column_translation, ColumnTranslation)
+            self.cell_translation_generators.append(
+                column_translation.get_generator())
+            
+    def generate_cell_translations(self):
+        y = self._source_start_row
+        while any([generator.has_next() for generator in 
+                   self.cell_translation_generators]):
+            row = TranslationRow()
+            for generator in self.cell_translation_generators:
+                assert isinstance(generator, CellGenerator)
+                if not generator.has_next():
+                    continue
+                cell_translation = generator.next()
+                self.cell_translations[cell_translation.src_pos] = \
+                    cell_translation
+                row.add_cell_translation(cell_translation)
+            self.translation_rows[y] = row
+            y += 1
+
+    def highlight_translation_rows_with_whitespace(self):
+        whitespace_positions = list(self.get_whitespace_positions())
+        assert isinstance(whitespace_positions, list)
+        for item in whitespace_positions:
+            assert isinstance(item, tuple), 'got: %s' % item
+            assert len(item) == 2, 'got: %s' % item
+        for pos in whitespace_positions:
+            try:
+                cell_t = self.cell_translations[pos]
+            except KeyError:
+                continue
+            assert isinstance(cell_t, CellTranslation)
+            row = cell_t.row
+            assert isinstance(row, TranslationRow)
+            row.color_cell_and_row(
+                pos[0],
+                WHITESPACE_CELL_COLOR,
+                WHITESPACE_ROW_COLOR,
+            )
+        self._whitespace_feedback(whitespace_positions)
+
+    def remove_whitespace_in_translation_rows(self):
+        whitespace_positions = list(self.get_whitespace_positions())
+        for pos in whitespace_positions:
+            try:
+                cell_t = self.cell_translations[pos]
+                assert isinstance(cell_t, CellTranslation)
+                cell_t.add_transform(lambda cell: cell.remove_whitespace())
+            except KeyError:
+                continue
+        self._whitespace_feedback(whitespace_positions)
+
+    def highlight_translation_rows_with_duplicates(self):
+        duplicate_positions = list(self.get_duplicate_positions())
+        for pos in duplicate_positions:
+            try:
+                cell_t = self.cell_translations[pos]
+            except KeyError:
+                continue
+            assert isinstance(cell_t, CellTranslation)
+            row = cell_t.row
+            assert isinstance(row, TranslationRow)
+            row.color_cell_and_row(
+                pos[0],
+                DUPLICATE_CELL_COLOR,
+                DUPLICATE_ROW_COLOR
+            )
+        self._duplicates_feedback(duplicate_positions)
+
+    def remove_translation_rows_with_duplicates(self):
+        duplicate_positions = list(self.get_duplicate_positions())
+        for pos in duplicate_positions:
+            try:
+                cell_t = self.cell_translations[pos]
+            except KeyError:
+                continue
+            row = cell_t.row
+            for y in self.translation_rows:
+                if self.translation_rows[y] is row:
+                    del self.translation_rows[y]
+                    break
+        self._duplicates_feedback(duplicate_positions)
+                
+    def get_duplicate_positions(self):
+        """
+        Returns lists of tuples of positions
+        :return: iterator of tuples
+        """
+        for column_translation in self._column_translations:
+            assert isinstance(column_translation, ColumnTranslation)
+            if not column_translation.check_for_duplicates:
+                continue
+            for duplicate_cell in \
+                    column_translation.get_duplicate_source_cells():
+                assert isinstance(duplicate_cell, Cell)
+                yield duplicate_cell.position
+                
+    def get_whitespace_positions(self):
+        """
+        Returns lists of tuples of positions
+        :return: iterator of tuples
+        """
+        for column_translation in self._column_translations:
+            assert isinstance(column_translation, ColumnTranslation)
+            if not column_translation.check_for_whitespace:
+                continue
+            for cell in column_translation.get_whitespace_source_cells():
+                yield cell.position
+
     def confirm_overwrite(self):
         reply = QtW.QMessageBox.question(
             self._dialog_parent,
@@ -1630,65 +1782,6 @@ class Translation:
                 )
             )
 
-    def add_row_deletion(self, row):
-        """
-        Adds row deletion to queue
-        :param row: int
-        """
-        assert isinstance(row, int)
-        self._row_deletions.add(row)
-
-    def add_cell_transform(self, pos, sheet, func):
-        """
-        Adds cell transformation to queue
-        :param sheet: str, 'src' or 'tgt'
-        :param pos: int x, int y
-        :param func: function
-        """
-        assert isinstance(sheet, str) and sheet in ('src', 'tgt')
-        assert isinstance(pos[0], int)
-        assert isinstance(pos[1], int)
-        assert hasattr(func, '__call__')
-        transform = CellTransform(pos, sheet, func)
-        if sheet == 'src':
-            if pos not in self._src_cell_transforms:
-                self._src_cell_transforms[pos] = list()
-            self._src_cell_transforms[pos].append(transform)
-        else:
-            if pos not in self._tgt_cell_transforms:
-                self._tgt_cell_transforms[pos] = []
-            self._tgt_cell_transforms[pos].append(transform)
-
-    def clear_cell_transform(self, pos, sheet):
-        """
-        Clears cell transforms from position
-        :param pos: int x, int y
-        :param sheet: 'src' or 'tgt'
-        """
-        assert isinstance(sheet, str) and sheet in ('src', 'tgt')
-        assert isinstance(pos[0], int)
-        assert isinstance(pos[1], int)
-        if sheet == 'src' and pos in self._src_cell_transforms:
-            del self._src_cell_transforms[pos]
-        elif sheet == 'tgt' and pos in self._tgt_cell_transforms:
-            del self._tgt_cell_transforms[pos]
-
-    def commit(self):
-        """
-        Moves column from source to target and applies modifications
-        applies each translation
-        :return: bool of whether commit was applied or not
-        """
-        # add cell transformations to be applied after move
-        self._add_cell_transformations()
-        # clear data
-        self.clear_target()
-        # move data
-        # for each column translation
-        for column_translation in self._column_translations:
-            column_translation.commit()
-        return True
-
     def clear_target(self):
         """
         Clears target sheet of conflicting cell data
@@ -1711,43 +1804,6 @@ class Translation:
                 cell.value = ''
                 cell.set_color(DEFAULT_COLOR)
 
-    def _add_cell_transformations(self):
-        """
-        Goes through columns and looks for whitespace / duplicates.
-        Applies cell transformations (removal / highlight) as needed.
-        """
-        for column_translation in self._column_translations:
-            source_column = self._source_sheet.get_column(
-                column_translation.source_column_i
-            )
-            # duplicates
-            self._add_whitespace_cell_transformations(source_column)
-            # whitespace
-            self._add_duplicate_cell_transformations(source_column)
-
-    def _add_whitespace_cell_transformations(self, source_column):
-        """
-        checks for whitespace in cells of source_column and takes
-        set action (remove, highlight, ignore).
-        Written to be called by _add_cell_transformations method.
-        :param source_column: Column
-        """
-        # find whitespace cells
-        whitespace_cells = [
-            cell for cell in source_column if
-            cell.value_without_whitespace != cell.value
-            ]
-        # add cell transformations
-        [self._add_whitespace_cell_transformation(cell)
-         for cell in whitespace_cells]
-        # give user message about whitespace action
-        if whitespace_cells:
-            # get positions of whitespace
-            whitespace_positions = [
-                cell.position for cell in whitespace_cells
-                ]
-            self._whitespace_feedback(whitespace_positions)
-
     def _whitespace_feedback(self, whitespace_positions):
         """
         Reports to user on whitespace removals.
@@ -1757,6 +1813,7 @@ class Translation:
         """
         if not whitespace_positions:
             return
+        print('giving whitespace feedback')
         secondary_string = ''
         if self.whitespace_action == WHITESPACE_REMOVE_STR:
             secondary_string = (
@@ -1778,58 +1835,10 @@ class Translation:
             detail=self._position_report(*whitespace_positions)
         )
 
-    def _add_whitespace_cell_transformation(self, cell):
-        """
-        Adds cell transformation for a cell containing whitespace.
-        Action taken depends on whitespace action setting.
-        Cell and row may be highlighted, whitespace removed, or the
-        cell ignored.
-        :param cell: cell containing whitespace.
-        """
-        assert cell.value_without_whitespace != cell.value
-        if self.whitespace_action == WHITESPACE_HIGHLIGHT_STR:
-            # color cell row when it is moved.
-            self._color_row(
-                cell_position=cell.position,
-                cell_color=WHITESPACE_CELL_COLOR,
-                row_color=WHITESPACE_ROW_COLOR
-            )
-        elif self.whitespace_action == WHITESPACE_REMOVE_STR:
-            # run remove whitespace function on cell when it is moved
-            self.add_cell_transform(
-                cell.position,
-                'src',
-                lambda c: c.remove_whitespace()
-            )
-
-    def _add_duplicate_cell_transformations(self, source_column):
-        [self._add_duplicate_cell_transformation(cell)
-         for cell in source_column.duplicates]
-        if source_column.duplicates:
-            duplicate_positions = [
-                cell.position for cell in source_column.duplicates
-                ]
-            self._duplicates_feedback(duplicate_positions)
-
-    def _add_duplicate_cell_transformation(self, cell):
-        """
-        Adds cell transformation for a cell with a duplicate value.
-        Action depends on duplicate cell action setting;
-        Row may be removed, highlighted, or ignored.
-        :param cell: cell containing duplicate value.
-        """
-        if self.duplicate_action == DUPLICATE_HIGHLIGHT_STR:
-            self._color_row(
-                cell_position=cell.position,
-                cell_color=DUPLICATE_CELL_COLOR,
-                row_color=DUPLICATE_ROW_COLOR
-            )
-        elif self.duplicate_action == DUPLICATE_REMOVE_ROW_STR:
-            self.add_row_deletion(cell.y)
-
     def _duplicates_feedback(
             self,
-            duplicate_positions) -> None:
+            duplicate_positions
+    ) -> None:
         """
         Provides feedback to user about duplicates and actions taken
         regarding said duplicates.
@@ -1838,6 +1847,7 @@ class Translation:
         if not duplicate_positions or \
                 self.duplicate_action == DUPLICATE_IGNORE_STR:
             return
+        print('giving duplicates feedback')
         secondary_string = ''
         if self.duplicate_action == DUPLICATE_HIGHLIGHT_STR:
             secondary_string = '%s Cell values were highlighted in ' \
@@ -1846,34 +1856,14 @@ class Translation:
             n_rows_w_duplicates = len(set(
                 [pos[1] for pos in duplicate_positions]))
             secondary_string = '%s Cell rows containing duplicate ' \
-                               'values were removed' % n_rows_w_duplicates,
+                               'values were removed' % n_rows_w_duplicates
         InfoMessage(
             parent=self._dialog_parent,
             title='Duplicate Values',
-            main='%s Duplicate cell values found' % duplicate_positions,
+            main='%s Duplicate cell values found' % len(duplicate_positions),
             secondary=secondary_string,
             detail=self._position_report(*duplicate_positions)
         )
-
-    def _color_row(self, cell_position, cell_color, row_color):
-        """
-        Colors a cell and row background.
-        :param cell_position: position of cell.
-        :param cell_color: color for cell to be colored.
-        :param row_color: color for all other cells in row to be colored.
-        """
-        [self.add_cell_transform(
-            (x, cell_position[1]),
-            'src',
-            lambda c: c.set_color(row_color)
-        ) for x in range(len(
-            self._source_sheet.get_row(cell_position[1])))]
-        # mark cell with duplicate red1
-        self.clear_cell_transform(
-            cell_position, 'src')
-        self.add_cell_transform(
-            cell_position, 'src',
-            lambda c: c.set_color(cell_color))
 
     def _position_report(self, *src_positions):
         """
@@ -1885,40 +1875,12 @@ class Translation:
         :return: str
         """
 
-        def src_to_tgt_pos(src_pos_):
-            """
-            Converts src_pos to tgt_pos
-            :param src_pos_: int x, int y
-            :return: int x, int y
-            """
-
-            def find_col_translation(x_):
-                for col_transform in \
-                        self._column_translations:
-                    assert isinstance(col_transform,
-                                      ColumnTranslation)
-                    if col_transform.source_column_i == x_:
-                        return col_transform
-
-            # find column the x index will be moved to
-            # by looking through column transforms
-            x_translation = find_col_translation(
-                src_pos_[0])
-            assert isinstance(x_translation, ColumnTranslation)
-            tgt_x = x_translation.target_column_i
-            tgt_y = src_pos_[1] - self.source_start_row + \
-                self.target_start_row
-            return tgt_x, tgt_y
-
-        # first convert src positions to tgt positions
-        tgt_positions = [src_to_tgt_pos(src_pos_)
-                         for src_pos_ in src_positions]
-
         rows = []  # list of row indices in report.
         # This keeps the columns in order.
         row_columns = {}  # dictionary of string lists
-        for x, y in tgt_positions:
-            column_name = self._target_sheet.get_column(x).name
+        for x, y in src_positions:
+            column_name = self._source_sheet.get_column(x).name
+            y += 1  # convert to office 1-base index
             if y not in rows:
                 row_columns[y] = list()
                 rows.append(y)
@@ -2103,46 +2065,13 @@ class ColumnTranslation:
         self._source_column_name = source_column_name
         self._duplicates_check = check_for_duplicates
         self._whitespace_check = check_for_whitespace
-
-    def commit(self) -> None:
-        """
-        Applies column translation.
-        Moves each cell in source column to target.
-        Skips rows that are listed in Translation.row_deletions
-        Applies cell transformations
-        :return: None
-        """
-        i = self._parent_translation.target_start_row
-        # for each cell in the source sheet column
-        for source_cell in self.source_column:
-            # don't include source cells before start row
-            # and those whose y position is in deletion set.
-            if source_cell.y in self._parent_translation.row_deletions or \
-                    source_cell.y < self._parent_translation.source_start_row:
-                continue
-            assert isinstance(source_cell, Cell)
-            tgt_x = self.target_column.index
-            tgt_y = i + self._parent_translation.target_start_row - \
-                self._parent_translation.source_start_row
-            assert isinstance(tgt_x, int)
-            assert isinstance(tgt_y, int)
-            target_cell = self.target_sheet.get_cell((tgt_x, tgt_y))
-            assert isinstance(target_cell, Cell)
-            target_cell.value = source_cell.value
-            # apply cell transforms
-            src_cell_transforms = self._parent_translation.src_cell_transforms
-            tgt_cell_transforms = self._parent_translation.tgt_cell_transforms
-            try:  # try to apply transforms pinned to the src cell position
-                [transform(target_cell) for transform in
-                 src_cell_transforms[source_cell.position]]
-            except KeyError:
-                pass  # no transforms for that src cell position
-            try:  # try to apply transforms pinned to the tgt cell position
-                [transform(target_cell) for transform in
-                 tgt_cell_transforms[target_cell.position]]
-            except KeyError:
-                pass  # no transforms for that tgt cell position
-            i += 1
+    
+    def get_generator(self):
+        return CellGenerator(
+            src_col=self.source_column,
+            tgt_col=self.target_column,
+            start_index=self._parent_translation.source_start_row
+        )
 
     # source sheet getters / setters
 
@@ -2341,46 +2270,86 @@ class ColumnTranslation:
             if value in values:
                 yield cell
             values.add(value)
+            
+
+class CellGenerator:
+    def __init__(self, src_col, tgt_col, start_index):
+        if not isinstance(src_col, Column):
+            raise TypeError('expected Column. got: %s' % src_col)
+        if not isinstance(tgt_col, Column):
+            raise TypeError
+        if not isinstance(start_index, int):
+            raise TypeError
+        self.tgt_col = tgt_col
+        self.src_col = src_col
+        self.i = start_index
+        self.end_index_exclusive = len(src_col)
+        
+    def has_next(self):
+        if self.i < self.end_index_exclusive:
+            return True
+        
+    def next(self):
+        cell_translation = CellTranslation(
+            cell=self.src_col.get_cell_by_index(self.i),
+            src_x=self.src_col.index,
+            tgt_x=self.tgt_col.index
+        )
+        self.i += 1
+        return cell_translation
 
 
-class RowTranslation:
-    """
-    Collection of CellTransforms with a common y coordinate.
-    """
-
-
-class CellTransform:
-    def __init__(self, src_sheet, tgt_sheet, src_pos, tgt_pos):
-        self.src_pos = src_pos
-        self.tgt_pos = tgt_pos
-        self.src_sheet = src_sheet
-        self.tgt_sheet = tgt_sheet
-
-    def move_up(self, distance: int):
-        """
-        Moves tgt position up by passed distance in cells.
-        :param distance: int
-        :return: None
-        """
-        x, y = self.tgt_pos
-        y -= distance
-        if y < 0:
-            raise ValueError('moving cell at %s up by %s would result in a '
-                             'negative y position' % (self.tgt_pos, distance))
-        self.tgt_pos = x, y
-
-    def move_down(self, distance: int):
-        x, y = self.tgt_pos
-        y += distance
-        self.tgt_pos = x, y
-
+class TranslationRow:
+    def __init__(self):
+        self.cell_translations = []
+        
+    def add_cell_translation(self, *translations):
+        for cell_translation in translations:
+            cell_translation.row = self
+            self.cell_translations.append(cell_translation)
+        
+    def color_cell_and_row(self, cell_x, cell_color, row_color):
+        for cell_t in self.cell_translations:
+            assert isinstance(cell_t, CellTranslation)
+            if cell_t.src_x != cell_x:
+                cell_t.add_transform(
+                    lambda cell:
+                    cell.set_color(row_color) if
+                    cell.get_color() == -1  # if cell is default color
+                    else None
+                )
+            else:
+                cell_t.add_transform(lambda cell: cell.set_color(cell_color))
+                
+    def apply(self, tgt_sheet, y):
+        for cell_t in self.cell_translations:
+            assert isinstance(cell_t, CellTranslation)
+            cell_t.apply(tgt_sheet, y)
+    
+    
+class CellTranslation:
+    row = None
+    
+    def __init__(self, cell, src_x, tgt_x):
+        self.cell, self.src_x, self.tgt_x = cell, src_x, tgt_x
+        self.transforms = []
+        
+    def apply(self, tgt_sheet, y_pos):
+        if not isinstance(tgt_sheet, Sheet):
+            raise TypeError
+        if not isinstance(y_pos, int):
+            raise TypeError
+        tgt_cell =  tgt_sheet.get_cell((self.tgt_x, y_pos))
+        tgt_cell.value = self.cell.value
+        [transform(tgt_cell) for transform in self.transforms]
+        
+    def add_transform(self, transform):
+        assert hasattr(transform, '__call__')
+        self.transforms.append(transform)
+        
     @property
-    def src_cell(self):
-        return self.src_sheet.get_cell(self.src_pos)
-
-    @property
-    def tgt_cell(self):
-        return self.tgt_sheet.get_cell(self.tgt_pos)
+    def src_pos(self):
+        return self.cell.position
 
 
 class CellTransform:
@@ -3195,7 +3164,7 @@ class FinalSettings(PyLeadDlg):
         side_string = 'Action for duplicates'
 
     class WhitespaceOption(MenuOption):
-        options = 'Do nothing', 'Highlight', 'Remove whitespace'
+        options = 'Do nothing', 'Highlight', 'Remove Whitespace'
         default_option = 'Highlight'
         tool_tip = 'Select action to be taken for cells containing whitespace'
         dict_str = WHITESPACE_ACTION_KEY
@@ -3418,8 +3387,9 @@ class InfoMessage(QtW.QMessageBox):
     """
 
     def __init__(self, parent, title, main, secondary='', detail=''):
-        assert all([isinstance(item, str)
-                    for item in (title, main, secondary, detail)])
+        for item in (title, main, secondary, detail):
+            assert isinstance(item, str), \
+                'expected str, got: %s, (%s)' % (item, item.__class__.__name__)
         super().__init__(parent)
         self.setIcon(QtW.QMessageBox.Information)
         self.setWindowTitle(title)
