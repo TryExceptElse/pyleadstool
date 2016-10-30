@@ -60,13 +60,13 @@ in ubuntu, this can be installed via
 
 """
 
-import PyQt5.QtWidgets as QtW
-
-import sys
-import os
-import platform
 import collections
+import os
 import pickle
+import platform
+import sys
+
+import PyQt5.QtWidgets as QtW
 
 try:
     import xlwings as xw
@@ -414,7 +414,7 @@ class LineSeries:
                 yield cell.row
             elif self._contents_type == 'columns':
                 yield cell.column
-                
+
     def __len__(self):
         """
         Returns size of LineSeries
@@ -1574,7 +1574,7 @@ class Translation:
         self.translation_rows = {}  # y_index: set(x_indices)
         self.cell_translation_generators = []  # x_index: generator
         self.cell_translations = {}  # src_pos: CellTranslation
-        
+
         self.get_cell_generators()
         self.generate_cell_translations()
 
@@ -1598,16 +1598,16 @@ class Translation:
             t_row = self.translation_rows[y]
             assert isinstance(t_row, TranslationRow)
             t_row.apply(self.target_sheet, y)
-        
+
     def get_cell_generators(self):
         for column_translation in self.column_translations:
             assert isinstance(column_translation, ColumnTranslation)
             self.cell_translation_generators.append(
                 column_translation.get_generator())
-            
+
     def generate_cell_translations(self):
         y = self._source_start_row
-        while any([generator.has_next() for generator in 
+        while any([generator.has_next() for generator in
                    self.cell_translation_generators]):
             row = TranslationRow()
             for generator in self.cell_translation_generators:
@@ -1683,7 +1683,7 @@ class Translation:
                     del self.translation_rows[y]
                     break
         self._duplicates_feedback(duplicate_positions)
-                
+
     def get_duplicate_positions(self):
         """
         Returns lists of tuples of positions
@@ -1697,7 +1697,7 @@ class Translation:
                     column_translation.get_duplicate_source_cells():
                 assert isinstance(duplicate_cell, Cell)
                 yield duplicate_cell.position
-                
+
     def get_whitespace_positions(self):
         """
         Returns lists of tuples of positions
@@ -2065,7 +2065,7 @@ class ColumnTranslation:
         self._source_column_name = source_column_name
         self._duplicates_check = check_for_duplicates
         self._whitespace_check = check_for_whitespace
-    
+
     def get_generator(self):
         return CellGenerator(
             src_col=self.source_column,
@@ -2270,7 +2270,7 @@ class ColumnTranslation:
             if value in values:
                 yield cell
             values.add(value)
-            
+
 
 class CellGenerator:
     def __init__(self, src_col, tgt_col, start_index):
@@ -2284,11 +2284,11 @@ class CellGenerator:
         self.src_col = src_col
         self.i = start_index
         self.end_index_exclusive = len(src_col)
-        
+
     def has_next(self):
         if self.i < self.end_index_exclusive:
             return True
-        
+
     def next(self):
         cell_translation = CellTranslation(
             cell=self.src_col.get_cell_by_index(self.i),
@@ -2302,12 +2302,12 @@ class CellGenerator:
 class TranslationRow:
     def __init__(self):
         self.cell_translations = []
-        
+
     def add_cell_translation(self, *translations):
         for cell_translation in translations:
             cell_translation.row = self
             self.cell_translations.append(cell_translation)
-        
+
     def color_cell_and_row(self, cell_x, cell_color, row_color):
         for cell_t in self.cell_translations:
             assert isinstance(cell_t, CellTranslation)
@@ -2320,20 +2320,20 @@ class TranslationRow:
                 )
             else:
                 cell_t.add_transform(lambda cell: cell.set_color(cell_color))
-                
+
     def apply(self, tgt_sheet, y):
         for cell_t in self.cell_translations:
             assert isinstance(cell_t, CellTranslation)
             cell_t.apply(tgt_sheet, y)
-    
-    
+
+
 class CellTranslation:
     row = None
-    
+
     def __init__(self, cell, src_x, tgt_x):
         self.cell, self.src_x, self.tgt_x = cell, src_x, tgt_x
         self.transforms = []
-        
+
     def apply(self, tgt_sheet, y_pos):
         if not isinstance(tgt_sheet, Sheet):
             raise TypeError
@@ -2342,11 +2342,11 @@ class CellTranslation:
         tgt_cell =  tgt_sheet.get_cell((self.tgt_x, y_pos))
         tgt_cell.value = self.cell.value
         [transform(tgt_cell) for transform in self.transforms]
-        
+
     def add_transform(self, transform):
         assert hasattr(transform, '__call__')
         self.transforms.append(transform)
-        
+
     @property
     def src_pos(self):
         return self.cell.position
@@ -3040,7 +3040,7 @@ class PreliminarySettings(PyLeadDlg):
         if not self.check_sheets_have_column_headers():
             return
         self.accept()
-        
+
     def check_sheets_have_column_headers(self) -> bool:
         """
         Checks that source and target sheets have column headers at
@@ -3055,10 +3055,10 @@ class PreliminarySettings(PyLeadDlg):
             self.check_sheet_has_headers(src_sheet_name, src_header_i),
             self.check_sheet_has_headers(tgt_sheet_name, tgt_header_i)
         ])  # return bool whether or not all sheets have column headers
-        
+
     def check_sheet_has_headers(
-            self, 
-            sheet_name: str, 
+            self,
+            sheet_name: str,
             header_index: int
     ) -> bool:
         """
