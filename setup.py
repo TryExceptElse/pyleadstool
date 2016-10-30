@@ -1,4 +1,5 @@
-"""
-Sets up macro for use
-"""
-# todo
+from distutils.core import setup
+
+import py2exe
+
+setup(console=['leadmacro.py'])
