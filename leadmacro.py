@@ -410,11 +410,21 @@ class LineSeries:
         Returns Generator that iterates over columns in LineSeries
         :return: Generator<Line>
         """
+        assert isinstance(self.reference_line, (
+            Office.XW.Column,
+            Office.XW.Row,
+            Office.Uno.Column,
+            Office.Uno.Row
+        ))
+        print('contents: ' + self._contents_type)
+        print('line_type: %s' % self.reference_line)
         for cell in self.reference_line:
             if self._contents_type == 'rows':
                 yield cell.row
             elif self._contents_type == 'columns':
                 yield cell.column
+            else:
+                assert False
                 
     def __len__(self):
         """
@@ -495,6 +505,9 @@ class LineSeries:
             return 'columns'
         elif isinstance(self.reference_line, Column):
             return 'rows'
+        else:
+            raise TypeError('Expected reference_line to be Row or'
+                            'Column. Got: %s' % repr(self.reference_line))
 
 
 class Line:
@@ -1056,7 +1069,9 @@ class Office:
                 return Office.XW.Cell(self.sheet, (self.index, index))
 
             def __iter__(self):
-                return self.get_iterator(axis='y')
+                iterator = self.get_iterator(axis='y')
+                print(iterator)
+                return iterator
 
         class Row(Line, Row):
             def __init__(
