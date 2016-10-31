@@ -47,12 +47,6 @@ KNOWN BUGS:
 *   When loading or saving previous translations (using FileDlg class),
     interacting with the dlg will usually require two clicks
 
-
-TODO:
-*   Fix cell line iteration error in XW
-*   Drop down sheet selection in PreliminaryDlg
-*   Ensure Association file saves + loads on windows
-
 INSTALL:
 for libreoffice, requires python scripts module installed.
 in ubuntu, this can be installed via
@@ -2826,10 +2820,7 @@ class PreliminarySettings(PyLeadDlg):
                                        tuple(self.default_strings)
             # set text to default value
             self.set_options()
-            try:
-                self.setCurrentText(str(self._find_default_value()))
-            except:
-                pass
+            self.setCurrentText(str(self._find_default_value()))
             self.gui_setup()
 
         def gui_setup(self):
@@ -3094,7 +3085,6 @@ class PreliminarySettings(PyLeadDlg):
             )
             return False
         return True
-
 
     def check_sheets_have_column_headers(self) -> bool:
         """
