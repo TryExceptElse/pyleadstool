@@ -2833,7 +2833,7 @@ class PreliminarySettings(PyLeadDlg):
             # find default value
             if self.start_str:  # if a starting string has been passed,
                 # use that.
-                self.setText(self.start_str)
+                return self.start_str
             else:  # otherwise, find the first default value that works
                 # for each sheet of both passed and native defaults,
                 # check if they exist, if so, use that value
