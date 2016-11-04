@@ -403,11 +403,19 @@ class LineSeries:
         Returns Generator that iterates over columns in LineSeries
         :return: Generator<Line>
         """
+        assert isinstance(self.reference_line, (
+            Office.XW.Column,
+            Office.XW.Row,
+            Office.Uno.Column,
+            Office.Uno.Row
+        ))
         for cell in self.reference_line:
             if self._contents_type == 'rows':
                 yield cell.row
             elif self._contents_type == 'columns':
                 yield cell.column
+            else:
+                assert False
 
     def __len__(self):
         """
@@ -488,6 +496,9 @@ class LineSeries:
             return 'columns'
         elif isinstance(self.reference_line, Column):
             return 'rows'
+        else:
+            raise TypeError('Expected reference_line to be Row or'
+                            'Column. Got: %s' % repr(self.reference_line))
 
 
 class Line:
@@ -2956,7 +2967,7 @@ class PreliminarySettings(PyLeadDlg):
             elif not self.text().isdigit():
                 self._invalid_row('Value entered for %s ( %s ) does '
                                   'not appear to be an integer.' %
-                                  (self.side_string, self.currentText()))
+                                  (self.side_string, self.text()))
             elif self.value < 0:
                 self._invalid_row('%s cannot be negative. Got: %s.' %
                                   (self.side_string, self.value))
