@@ -1347,7 +1347,7 @@ class Office:
                 )
 
             def __iter__(self):
-                self.get_iterator(axis='x')
+                return self.get_iterator(axis='x')
 
             def get_cell_by_index(self, index: int) -> Cell:
                 """
