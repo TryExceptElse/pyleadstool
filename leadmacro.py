@@ -2787,8 +2787,9 @@ class TranslationDialog(PyLeadDlg):
         if not result:  # if user has not accepted
             return
         # otherwise, get saved translations dict list
-        translations_dicts = load_dlg.load()
-        self.table.populate_table(translations_dicts)
+        translations_dicts = load_dlg.load()  # returns list of dicts
+        if translations_dicts:  # if list is not empty
+            self.table.populate_table(translations_dicts)
 
     def finish(self):
         self.table.store_col_associations()
@@ -3309,7 +3310,7 @@ class SaveTranslationsDlg(FileDlg):
         grid.add_row(self.file_name_entry_field)
         grid.add_row(self.accept_button, self.cancel_button)
         self.setLayout(grid)
-        self.exec()
+        # self.exec()
 
     def save(self):
         """
@@ -3361,7 +3362,7 @@ class LoadTranslationsDlg(FileDlg):
         grid.add_row(self.file_selection_field, self.delete_button)
         grid.add_row(self.cancel_button, self.accept_button)
         self.setLayout(grid)
-        self.exec()
+        # self.exec()
 
     def populate_file_selection_field(self):
         self.file_selection_field.clear()
