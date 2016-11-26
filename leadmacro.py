@@ -2868,7 +2868,6 @@ class TranslationDialog(PyLeadDlg):
         translations = self.table.settings
         save_dir = OS.get_translations_save_dir_path()
         save_dlg = SaveTranslationsDlg(
-            obj_to_save=translations,
             parent=self,
             saves_dir=save_dir
         )
@@ -2877,17 +2876,17 @@ class TranslationDialog(PyLeadDlg):
             return
         # write file
         save_file_path = os.path.join(
-            self.saves_dir_path,
+            save_dir,
             save_dlg.file_name_entry_field.text()) + \
             SERIALIZED_OBJ_SUFFIX
         try:
             with open(save_file_path, 'wb') as save_file:
-                pickle.dump(self.obj_to_save, save_file)
+                pickle.dump(translations, save_file)
+            print('save accepted')
         except IOError:
             print('saving %s to file: %s failed.'
                   % (self.obj_to_save, save_file_path))
             print(sys.exc_info())
-        print('save accepted')
 
     def load_saved_translations(self) -> None:
         """
@@ -2905,8 +2904,9 @@ class TranslationDialog(PyLeadDlg):
         if not result:  # if user has not accepted
             return
         # otherwise, get saved translations dict list
-        translations_dicts = load_dlg.load()
-        self.table.populate_table(translations_dicts)
+        translations_dicts = load_dlg.load()  # returns list of dicts
+        if translations_dicts:  # if list is not empty
+            self.table.populate_table(translations_dicts)
 
     def finish(self):
         self.table.store_col_associations()
@@ -3407,13 +3407,11 @@ class SaveTranslationsDlg(FileDlg):
 
     def __init__(
             self,
-            obj_to_save: object,
             parent: QtW.QWidget,
             saves_dir: str
     ) -> None:
         print('Save dialog initialization began')
         super().__init__(parent, saves_dir)
-        self.obj_to_save = obj_to_save
         grid = ExpandingGridLayout()
         self.file_name_entry_field = QtW.QLineEdit()
         self.file_name_entry_field.setToolTip(
@@ -3427,7 +3425,7 @@ class SaveTranslationsDlg(FileDlg):
         grid.add_row(self.file_name_entry_field)
         grid.add_row(self.accept_button, self.cancel_button)
         self.setLayout(grid)
-        self.exec()
+        # self.exec()
 
     def save(self):
         """
@@ -3479,7 +3477,7 @@ class LoadTranslationsDlg(FileDlg):
         grid.add_row(self.file_selection_field, self.delete_button)
         grid.add_row(self.cancel_button, self.accept_button)
         self.setLayout(grid)
-        self.exec()
+        # self.exec()
 
     def populate_file_selection_field(self):
         """
