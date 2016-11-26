@@ -44,8 +44,6 @@ KNOWN BUGS:
 
 *   Attempting to open two instances of the macro simultaneously will
     freeze both macros and the office program
-*   When loading or saving previous translations (using FileDlg class),
-    interacting with the dlg will usually require two clicks
 
 INSTALL:
 for libreoffice, requires python scripts module installed.
@@ -147,6 +145,10 @@ class Model:
         # implemented by office program specific subclasses
 
     def __iter__(self):
+        """
+        Gets iterator returning sheets in model
+        :return: Iterator
+        """
         raise NotImplementedError
 
     def get_sheet(
@@ -167,11 +169,21 @@ class Model:
         raise NotImplementedError  # todo: finish sorting these two methods out
 
     def sheet_exists(self, *sheet_name: str) -> str:
+        """
+        Checks that the passed string(s) exist in the model.
+        if so, returns the first passed sheet name to do so.
+        :param sheet_name:
+        :return:
+        """
         raise NotImplementedError
         # implemented by office program specific subclasses
 
     @property
     def sheets(self):
+        """
+        Returns iterator of sheets in model.
+        :return: Iterator
+        """
         raise NotImplementedError
         # implemented by office program specific subclasses
 
@@ -185,6 +197,10 @@ class Model:
 
 
 class Sheet:
+    """
+    Abstract class for sheet handling cell values of a passed sheet.
+    Inherited from by PyUno.Sheet and XW.Sheet.
+    """
     i7e_sheet = None  # interface sheet obj. ie; com.sun.star...Sheet
     _reference_row_index = 0
     _reference_column_index = 0
@@ -213,6 +229,12 @@ class Sheet:
             return self.get_column_by_index(column_identifier)
 
     def get_column_by_index(self, column_index: int):
+        """
+        Gets column in Sheet by passed index.
+        Implemented by sub-classes.
+        :param column_index: int
+        :return: Column
+        """
         raise NotImplementedError
         # implemented by office program specific subclasses
 
@@ -252,6 +274,12 @@ class Sheet:
             return self.get_row_by_index(row_identifier)
 
     def get_row_by_index(self, row_index: int or str):
+        """
+        Gets row by passed index.
+        Implemented by subclasses.
+        :param row_index: int
+        :return: Row
+        """
         raise NotImplementedError
         # implemented by office program specific subclasses
 
@@ -280,6 +308,21 @@ class Sheet:
                 return y
 
     def get_cell(self, cell_identifier, **kwargs):
+        """
+        Gets cell from Sheet.
+        May be identified as;
+        example_sheet.get_cell((x, y))
+        example_sheet.get_cell((row_name, column_name))
+        example_sheet.get_cell((row_name, y_int))
+        Assumes that a passed number is a row or column index.
+        If a number is to be passed as a row or sheet name,
+        pass as a kwarg x_identifier_type='name' or
+        y_identifier_type='name'.
+        Also valid: x_identifier_type='index'
+        :param cell_identifier: tuple
+        :param kwargs: strings
+        :return:
+        """
         # if cell_identifier is list or tuple, get cell via
         # x, y coordinates
         if isinstance(cell_identifier, (list, tuple)):
@@ -367,10 +410,18 @@ class Sheet:
 
     @property
     def columns(self):
+        """
+        Gets iterator of columns in sheet
+        :return: Iterator[Column]
+        """
         return LineSeries(reference_line=self.reference_row)
 
     @property
     def rows(self):
+        """
+        Gets iterator of rows in Sheet.
+        :return: Iterator[Row]
+        """
         return LineSeries(reference_line=self.reference_column)
 
     def __str__(self) -> str:
@@ -492,6 +543,10 @@ class LineSeries:
 
     @property
     def _contents_type(self) -> str:
+        """
+        Gets the str name of line series; either 'columns' or 'rows'
+        :return: str
+        """
         if isinstance(self.reference_line, Row):
             return 'columns'
         elif isinstance(self.reference_line, Column):
@@ -502,6 +557,10 @@ class LineSeries:
 
 
 class Line:
+    """
+    Abstract class for a line of cells.
+    Sub-classed by both Row and Column
+    """
     sheet = None  # these are to be set on init in subclasses
     index = None  # index of this line.
 
@@ -567,6 +626,12 @@ class Line:
 
     @property
     def _reference_line(self):
+        """
+        Gets reference line which is parallel to this Line and
+        which is used to look up names of cells in this Line.
+        Implemented in sub-classes.
+        :return: Line
+        """
         raise NotImplementedError
 
     @property
@@ -709,6 +774,7 @@ class Row(Line):
 
 
 class Cell:
+    """ Class handling usage of a single cell in office worksheet """
     position = None
     sheet = None
 
@@ -722,13 +788,30 @@ class Cell:
         self.position = tuple(position)
         self.sheet = sheet
 
-    def set_color(self, color: int or list or tuple) -> None:
+    def set_color(self, color: int or list or tuple or Color) -> None:
+        """
+        Sets color in cell to that passed as
+        integer (as in a color hex code),
+        list or tuple (containing r,g,b values)
+        or a Color obj.
+        :param color: int, list, tuple, or Color
+        :return: None
+        """
         raise NotImplementedError
 
     def get_color(self) -> int:
+        """
+        Gets color contained in cell as an integer.
+        :return: int
+        """
         raise NotImplementedError
 
-    def remove_whitespace(self):
+    def remove_whitespace(self) -> None:
+        """
+        Edits cell value to remove tab, linefeed, return, form-feed,
+        and vertical tab characters.
+        :return: None
+        """
         self.value = self.value_without_whitespace
 
     def clear(self):
@@ -767,26 +850,57 @@ class Cell:
 
     @property
     def value(self) -> int or float or str or None:
+        """
+        Gets value contained in sheet cell.
+        Does not return only number values.
+        :return: int, float, str, or None
+        """
         raise NotImplementedError
 
     @value.setter
     def value(self, new_value: str or int or float or None) -> None:
+        """
+        Sets cell value.
+        :param new_value: str, int, float, or None
+        :return: None
+        """
         raise NotImplementedError
 
     @property
-    def string(self):
+    def string(self) -> str:
+        """
+        Gets string value of cell.
+        If stored value is str, returns str as is. Otherwise gets
+        string of stored value, or empty string if None.
+        :return: str
+        """
         raise NotImplementedError
 
     @string.setter
     def string(self, new_string: str) -> None:
+        """
+        Sets string value of cell
+        :param new_string: str
+        :return: None
+        """
         raise NotImplementedError
 
     @property
     def float(self):
+        """
+        Gets float value of cell.
+        If cell contains a string or None, returns 0.
+        :return: float
+        """
         raise NotImplementedError
 
     @float.setter
     def float(self, new_float: int or float) -> None:
+        """
+        Sets float value of cell.
+        :param new_float: int or float
+        :return:
+        """
         raise NotImplementedError
 
     @property
@@ -806,6 +920,10 @@ class Cell:
         return self.position[1]
 
     def __repr__(self) -> str:
+        """
+        Gets cell repr with sheet sheet, position, and value
+        :return: str
+        """
         return 'Cell(%s, %s) Value: %s' % (
             self.sheet, self.position, self.value.__repr__()
         )
@@ -3364,6 +3482,10 @@ class LoadTranslationsDlg(FileDlg):
         self.exec()
 
     def populate_file_selection_field(self):
+        """
+        Populates selection field with sorted file names
+        :return: None
+        """
         self.file_selection_field.clear()
         file_names = list(self.get_save_file_names())
         file_names.sort()
@@ -3475,9 +3597,7 @@ class ConfirmDialog(QtW.QMessageBox):
 
 
 class OkButton(QtW.QPushButton):
-    """
-    calls passed function when clicked by user.
-    """
+    """ calls passed function when clicked by user."""
 
     def __init__(self, ok_function):
         super().__init__('OK')
