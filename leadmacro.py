@@ -24,15 +24,26 @@
     SOFTWARE.
 
 
-
-PRE-DELIVERABLE STATE
-
-
 As a macro, all LOC are going to be located within this module.
 It may not be the best organization, but it allows easier mobility of
 the produced macro.
 
-This is intended to be run as a LibreOffice Calc macro
+This is intended to be run as a LibreOffice Calc macro or executed alongside
+a running office program with open Excel sheets.
+
+TODO:
+
+*   Add ability to check for duplicates against a collection of
+        previously used values.
+    *   Possible implementations;
+        *   XML table storing sheets/values
+        *   Folder containing a file for each used input sheet,
+                storing key values
+*   Increase speed at which values in Excel are accessed
+    *   Cache previously accessed cells in a sheet
+        *   (store dict of created cells?)
+    *   Access whole lines of data at a time, rather than individual cells
+        *   May be faster / easier to implement
 
 Contents:
 
@@ -207,16 +218,16 @@ class Sheet:
 
     def __init__(
             self,
-            i7e_sheet,
-            reference_row_index=0,
-            reference_column_index=0
+            i7e_sheet,  # used by subclasses
+            reference_row_index=0,  # used by subclasses
+            reference_column_index=0  # used by subclasses
     ) -> None:
         raise NotImplementedError
 
     def get_column(
             self,
             column_identifier: int or float or str
-    ):
+    ) -> 'Column':
         """
         Gets column by name if identifier is str, otherwise,
         attempts to get column by index.
@@ -228,7 +239,7 @@ class Sheet:
         else:
             return self.get_column_by_index(column_identifier)
 
-    def get_column_by_index(self, column_index: int):
+    def get_column_by_index(self, column_index: int) -> 'Column':
         """
         Gets column in Sheet by passed index.
         Implemented by sub-classes.
@@ -238,7 +249,7 @@ class Sheet:
         raise NotImplementedError
         # implemented by office program specific subclasses
 
-    def get_column_by_name(self, column_name: int or float or str):
+    def get_column_by_name(self, column_name: int or float or str) -> 'Column':
         """
         Gets column from a passed reference value which is compared
         to each cell value in the reference row.
@@ -262,7 +273,7 @@ class Sheet:
             if cell.value == column_name:
                 return x
 
-    def get_row(self, row_identifier: int or float or str):
+    def get_row(self, row_identifier: int or float or str) -> 'Row':
         """
         Gets row by name if identifier is str, otherwise by index
         :param row_identifier: int, float, or str
@@ -273,7 +284,7 @@ class Sheet:
         else:
             return self.get_row_by_index(row_identifier)
 
-    def get_row_by_index(self, row_index: int or str):
+    def get_row_by_index(self, row_index: int or str) -> 'Row':
         """
         Gets row by passed index.
         Implemented by subclasses.
@@ -283,7 +294,7 @@ class Sheet:
         raise NotImplementedError
         # implemented by office program specific subclasses
 
-    def get_row_by_name(self, row_name: int or str or float):
+    def get_row_by_name(self, row_name: int or str or float) -> 'Row':
         """
         Gets row from a passed reference value which is compared
         to each cell value in the reference row.
@@ -307,7 +318,7 @@ class Sheet:
             if cell.value == row_name:
                 return y
 
-    def get_cell(self, cell_identifier, **kwargs):
+    def get_cell(self, cell_identifier, **kwargs) -> 'Cell':
         """
         Gets cell from Sheet.
         May be identified as;
@@ -372,7 +383,7 @@ class Sheet:
         self._reference_row_index = new_index
 
     @property
-    def reference_row(self):
+    def reference_row(self) -> 'Row':
         """
         Gets reference row
         :return: Office.Row
@@ -401,7 +412,7 @@ class Sheet:
         self._reference_column_index = new_index
 
     @property
-    def reference_column(self):
+    def reference_column(self) -> 'Column':
         """
         Gets reference column
         :return: Office.Column
@@ -409,7 +420,7 @@ class Sheet:
         return self.get_column(self.reference_column_index)
 
     @property
-    def columns(self):
+    def columns(self) -> 'LineSeries':
         """
         Gets iterator of columns in sheet
         :return: Iterator[Column]
@@ -417,7 +428,7 @@ class Sheet:
         return LineSeries(reference_line=self.reference_row)
 
     @property
-    def rows(self):
+    def rows(self) -> 'LineSeries':
         """
         Gets iterator of rows in Sheet.
         :return: Iterator[Row]
@@ -468,7 +479,7 @@ class LineSeries:
             else:
                 assert False
 
-    def __len__(self):
+    def __len__(self) -> int:
         """
         Returns size of LineSeries
         :return: int
@@ -480,7 +491,7 @@ class LineSeries:
         except StopIteration:
             return count
 
-    def get_by_name(self, name: int or float or str):
+    def get_by_name(self, name: int or float or str) -> 'Line':
         """
         Gets line from passed line name.
         Returns None if no line of that name is found.
@@ -494,7 +505,7 @@ class LineSeries:
                 elif self._contents_type == 'rows':
                     return cell.row
 
-    def get_by_index(self, index: int):
+    def get_by_index(self, index: int) -> 'Line':
         """
         Gets line from passed line index
         :param index:
@@ -586,7 +597,7 @@ class Line:
         self.index = index
         self.reference_index = index
 
-    def __getitem__(self, item: int or str):
+    def __getitem__(self, item: int or str) -> 'Cell':
         raise NotImplementedError
         # implemented by office program specific subclasses
 
@@ -594,25 +605,25 @@ class Line:
         raise NotImplementedError
         # implemented by office program specific subclasses
 
-    def __len__(self):
+    def __len__(self) -> int:
         raise NotImplementedError
         # implemented by office program specific subclasses
 
-    def get_cell_by_index(self, index: int):
+    def get_cell_by_index(self, index: int) -> 'Cell':
         raise NotImplementedError
         # implemented by Row and Column in office program
         # specific subclasses
 
-    def get_cell_by_reference(self, reference: str or float or int):
+    def get_cell_by_reference(self, reference: str or float or int) -> 'Cell':
         for i, cell in enumerate(self._reference_line):
             if cell.value == reference:
                 return self.get_cell_by_index(i)
 
-    def get_iterator(self, axis: str):
+    def get_iterator(self, axis: str) -> 'CellLine':
         assert axis == 'x' or axis == 'y'
         return CellLine(self.sheet, axis, self.index)
 
-    def clear(self, include_header: bool = False):
+    def clear(self, include_header: bool = False) -> None:
         """
         Clears line of cells.
         If Include header is True; clears cell data in cells
@@ -625,7 +636,7 @@ class Line:
          if i > self.name_cell_index or include_header]
 
     @property
-    def _reference_line(self):
+    def _reference_line(self) -> 'Line':
         """
         Gets reference line which is parallel to this Line and
         which is used to look up names of cells in this Line.
@@ -655,7 +666,7 @@ class Line:
         raise NotImplementedError
 
     @property
-    def name(self):
+    def name(self) -> int or float or str or None:
         """
         Returns name of line, which is the value stored in the
         line's header cell, located in the sheet's reference
@@ -686,7 +697,7 @@ class Column(Line):
     Abstract Column class, extended by Office.XW.Column and Office.XW.Row
     """
 
-    def __getitem__(self, cell_identifier):
+    def __getitem__(self, cell_identifier) -> 'Cell':
         """
         Gets cell from passed identifier.
         If identifier is string, presumes it is a cell's name.
@@ -708,11 +719,11 @@ class Column(Line):
                     return self[x]
 
     @property
-    def _reference_line(self):
+    def _reference_line(self) -> 'Line':
         return self.reference_column
 
     @property
-    def reference_column(self):
+    def reference_column(self) -> 'Column':
         return self.sheet.reference_column
 
     @property
@@ -730,7 +741,7 @@ class Row(Line):
     Abstract Row obj. Extended by Office.XW.Row and Office.Uno.Row
     """
 
-    def __getitem__(self, cell_identifier):
+    def __getitem__(self, cell_identifier) -> 'Cell':
         """
         Gets cell from passed identifier.
         If identifier is string, presumes it is a cell's name.
@@ -750,11 +761,11 @@ class Row(Line):
                     return self[x]
 
     @property
-    def _reference_line(self):
+    def _reference_line(self) -> 'Line':
         return self.reference_row
 
     @property
-    def reference_row(self):
+    def reference_row(self) -> 'Row':
         """
         Gets reference row.
         This is the row that contains the names of the
@@ -904,7 +915,7 @@ class Cell:
         raise NotImplementedError
 
     @property
-    def x(self):
+    def x(self) -> int:
         """
         Gets x position of cell
         :return: int
@@ -2462,7 +2473,7 @@ class CellTranslation:
             raise TypeError
         if not isinstance(y_pos, int):
             raise TypeError
-        tgt_cell =  tgt_sheet.get_cell((self.tgt_x, y_pos))
+        tgt_cell = tgt_sheet.get_cell((self.tgt_x, y_pos))
         tgt_cell.value = self.cell.value
         [transform(tgt_cell) for transform in self.transforms]
 
@@ -2938,7 +2949,7 @@ class PreliminarySettings(PyLeadDlg):
                 'Expected start_str to be str, instead %s was passed %s.' \
                 % (self.__class__.__name__, start_str)
             assert default_values is None or \
-                   isinstance(default_values, (tuple, list)), \
+                isinstance(default_values, (tuple, list)), \
                 '%s __init__ was passed %s for default_values. ' \
                 'That should not be' % (self.__name__, default_values)
             super().__init__()
@@ -3059,7 +3070,7 @@ class PreliminarySettings(PyLeadDlg):
                 'Expected start_str to be str, instead %s was passed %s.' \
                 % (self.__class__.__name__, start_str)
             assert default_values is None or \
-                   isinstance(default_values, (tuple, list)), \
+                isinstance(default_values, (tuple, list)), \
                 '%s __init__ was passed %s for default_values. ' \
                 'That should not be' % (self.__name__, default_values)
             super().__init__()
