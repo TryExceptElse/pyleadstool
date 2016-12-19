@@ -42,6 +42,8 @@ TODO:
 *   Increase speed at which values in Excel are accessed
     *   Cache previously accessed cells in a sheet
         *   (store dict of created cells?)
+        *   cache sheet.get_cell method
+        *   Cell.value property should be cached
     *   Access whole lines of data at a time, rather than individual cells
         *   May be faster / easier to implement
 
@@ -82,6 +84,8 @@ SERIALIZED_OBJ_SUFFIX = '.pkl'
 
 MAX_CELL_GAP = 10  # max distance between inhabited cells in the workbook
 
+CACHING = True  # whether or not cells should cache accessed values
+
 APP_WINDOW_TITLE = 'Lead Macro'
 DEFAULT_WIDGET_X = 512
 DEFAULT_WIDGET_Y = 512
@@ -90,7 +94,7 @@ DEFAULT_WIDGET_W = 524
 DEFAULT_CONTENT_MARGIN_X = 15
 DEFAULT_CONTENT_MARGIN_Y = 5
 
-STANDARD_GRID_SPACING = 10
+STANDARD_GRID_SPACING = 10  # spacing in gui grid
 
 NONE_STRING = '< Empty >'
 
@@ -167,7 +171,7 @@ class Model:
             sheet_name: str,
             row_ref_i: int=0,
             col_ref_i: int=0
-    ):
+    ) -> 'Sheet':
         """
         Gets sheet of passed name in Model.
         Functions the same as Model.__getitem__ except reference row
@@ -183,8 +187,8 @@ class Model:
         """
         Checks that the passed string(s) exist in the model.
         if so, returns the first passed sheet name to do so.
-        :param sheet_name:
-        :return:
+        :param sheet_name: str
+        :return: str
         """
         raise NotImplementedError
         # implemented by office program specific subclasses
@@ -356,7 +360,7 @@ class Sheet:
                 assert isinstance(x_identifier, int)  # sanity check
                 column = self.get_column_by_index(x_identifier)
             if (y_identifier_type == 'name' or
-                x_identifier_type is None and isinstance(
+                y_identifier_type is None and isinstance(
                     y_identifier, str)):
                 return column.get_cell_by_reference(y_identifier)
             else:
@@ -606,8 +610,10 @@ class Line:
         # implemented by office program specific subclasses
 
     def __len__(self) -> int:
-        raise NotImplementedError
-        # implemented by office program specific subclasses
+        count = 0
+        for each in self:
+            count += 1
+        return count
 
     def get_cell_by_index(self, index: int) -> 'Cell':
         raise NotImplementedError
@@ -789,6 +795,10 @@ class Cell:
     position = None
     sheet = None
 
+    _value_cache = None
+    _string_cache = None
+    _float_cache = None
+
     def __init__(
             self,
             sheet: Sheet,
@@ -914,6 +924,15 @@ class Cell:
         """
         raise NotImplementedError
 
+    def reset_cache(self) -> None:
+        """
+        Resets cached value, value float, and value string
+        :return: None
+        """
+        self._value_cache = None
+        self._float_cache = None
+        self._string_cache = None
+
     @property
     def x(self) -> int:
         """
@@ -932,7 +951,7 @@ class Cell:
 
     def __repr__(self) -> str:
         """
-        Gets cell repr with sheet sheet, position, and value
+        Gets cell repr with sheet, position, and value
         :return: str
         """
         return 'Cell(%s, %s) Value: %s' % (
@@ -1029,6 +1048,9 @@ class Office:
         """
 
         class Model(Model):
+            """
+            XW data model, extends Model superclass
+            """
             def __init__(self, app_=None):
                 if app_:
                     self.active_app = app_
@@ -1131,6 +1153,9 @@ class Office:
                         yield "%s::%s" % (book.name, sheet.name)
 
         class Sheet(Sheet):
+            """
+            XW Sheet
+            """
             def __init__(
                     self,
                     xw_sheet,
@@ -1167,14 +1192,10 @@ class Office:
                     self.i7e_sheet.book.name,
                 )
 
-        class Line(Line):
-            def __len__(self) -> int:
-                count = 0
-                for each in self:
-                    count += 1
-                return count
-
         class Column(Line, Column):
+            """
+            XW Column
+            """
             def __init__(
                     self,
                     sheet: Sheet,
@@ -1201,6 +1222,9 @@ class Office:
                 return self.get_iterator(axis='y')
 
         class Row(Line, Row):
+            """
+            XW Row
+            """
             def __init__(
                     self,
                     sheet: Sheet,
@@ -1228,6 +1252,10 @@ class Office:
                 return self.get_iterator(axis='x')
 
         class Cell(Cell):
+            """
+            XW Cell
+            """
+
             def set_color(self, color: int or list or tuple) -> None:
                 if color >= 0:
                     color = Color(color)
@@ -1415,25 +1443,6 @@ class Office:
                     row_index=row_index,
                     reference_row_index=self.reference_row_index
                 )
-
-        class Line(Line):
-            """
-            Contains methods common to both Columns and Rows
-            """
-
-            def __len__(self) -> int:
-                n = 0
-                for each in self:
-                    n += 1
-                return n
-
-            @property
-            def uno_sheet(self):
-                """
-                Gets uno sheet object
-                :return: uno sheet
-                """
-                return self.sheet.i7e_sheet
 
         class Column(Line, Column):
             """
