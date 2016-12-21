@@ -46,6 +46,7 @@ if __name__ == '__main__':
         translation_dicts = []
         i = 0
         n = len(src_col_names)
+        assert len(src_col_names) == len(tgt_col_names)
         for src_col_name, tgt_col_name in zip(src_col_names, tgt_col_names):
             # in first 1/5 of column transforms, check for duplicates
             if i <= n / 5:
