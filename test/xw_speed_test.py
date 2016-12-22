@@ -23,7 +23,7 @@ TARGET_COLUMN_NAME_KEY = 'target_column_name'
 WHITESPACE_CHK_KEY = 'check_for_whitespace'
 DUPLICATE_CHK_KEY = 'check_for_duplicates'
 
-DFT_SRC = 'st_src_v_short'
+DFT_SRC = 'st_src_short'
 DFT_TGT = 'st_tgt_1'
 
 
@@ -41,6 +41,9 @@ def test_translation_speed_is_improved(src_sheet=None, tgt_sheet=None):
     sheet_finding_start_time = time()
     src_sheet = model[src_sheet]
     tgt_sheet = model[tgt_sheet]
+    # enable caching, as should be the case in regular use
+    src_sheet.exclusive_editor = True
+    tgt_sheet.exclusive_editor = True
     print('finished getting sheet instances (%ss)' %
           (time() - sheet_finding_start_time))
     assert isinstance(src_sheet, Office.XW.Sheet), src_sheet
