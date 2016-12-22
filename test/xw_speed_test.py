@@ -23,7 +23,7 @@ TARGET_COLUMN_NAME_KEY = 'target_column_name'
 WHITESPACE_CHK_KEY = 'check_for_whitespace'
 DUPLICATE_CHK_KEY = 'check_for_duplicates'
 
-DFT_SRC = 'st_src_short'
+DFT_SRC = 'st_src_1'
 DFT_TGT = 'st_tgt_1'
 
 
@@ -107,4 +107,4 @@ if __name__ == '__main__':
     if xw is None:
         assert False, "XW was unable to be imported"
 
-    test_translation_speed_is_improved()
+    test_translation_speed_is_improved('st_src_short')

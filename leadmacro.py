@@ -40,10 +40,6 @@ TODO:
         *   Folder containing a file for each used input sheet,
                 storing key values
 *   Increase speed at which values in Excel are accessed
-    *   Cache previously accessed cells in a sheet
-        *   (store dict of created cells?)
-        *   cache sheet.get_cell method
-        *   Cell.value property should be cached
     *   Access whole lines of data at a time, rather than individual cells
         *   May be faster / easier to implement
 *   Add message to user, asking them not to edit source sheet
@@ -1851,6 +1847,7 @@ class Translation:
                 column_translation.get_generator())
 
     def generate_cell_translations(self):
+        print('mapping row translations')
         y = self._source_start_row
         while any([generator.has_next() for generator in
                    self.cell_translation_generators]):
@@ -1865,6 +1862,7 @@ class Translation:
                 row.add_cell_translation(cell_translation)
             self.translation_rows[y] = row
             y += 1
+        print('done mapping row translations')
 
     def highlight_translation_rows_with_whitespace(self):
         whitespace_positions = list(self.get_whitespace_positions())
@@ -1934,6 +1932,7 @@ class Translation:
         Returns lists of tuples of positions
         :return: iterator of tuples
         """
+        print('looking for duplicate cells')
         for column_translation in self._column_translations:
             assert isinstance(column_translation, ColumnTranslation)
             if not column_translation.check_for_duplicates:
@@ -1942,18 +1941,21 @@ class Translation:
                     column_translation.get_duplicate_source_cells():
                 assert isinstance(duplicate_cell, Cell)
                 yield duplicate_cell.position
+        print('done looking for duplicates')
 
     def get_whitespace_positions(self):
         """
         Returns lists of tuples of positions
         :return: iterator of tuples
         """
+        print('looking for whitespace in cells')
         for column_translation in self._column_translations:
             assert isinstance(column_translation, ColumnTranslation)
             if not column_translation.check_for_whitespace:
                 continue
             for cell in column_translation.get_whitespace_source_cells():
                 yield cell.position
+        print('done looking for whitespace')
 
     def confirm_overwrite(self):
         reply = QtW.QMessageBox.question(
