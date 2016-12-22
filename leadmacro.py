@@ -273,6 +273,7 @@ class Sheet:
         :param column_name: int, float, or str
         :return: int or None
         """
+        # todo: cache this
         for x, cell in enumerate(self.reference_row):
             if cell.value == column_name:
                 return x
@@ -1192,6 +1193,10 @@ class Office:
                     self.i7e_sheet.book.name,
                 )
 
+        class Line(Line):
+            pass  # no methods defined here at this time.
+            # keeping for MR0 purposes
+
         class Column(Line, Column):
             """
             XW Column
@@ -1443,6 +1448,10 @@ class Office:
                     row_index=row_index,
                     reference_row_index=self.reference_row_index
                 )
+
+        class Line(Line):
+            pass # no methods defined here anymore,
+            # keeping this in place for MRO purposes
 
         class Column(Line, Column):
             """
