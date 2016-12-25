@@ -68,6 +68,7 @@ in ubuntu, this can be installed via
 import collections
 import os
 import pickle
+import csv
 import platform
 import sys
 
@@ -219,6 +220,8 @@ class Sheet:
     i7e_sheet = None  # interface sheet obj. ie; com.sun.star...Sheet
     _reference_row_index = 0
     _reference_column_index = 0
+    _content_row_start = None  # default start index of table_row iter
+    _table_col_start = None  # default start index of table_col iter
 
     def __init__(
             self,
@@ -432,12 +435,68 @@ class Sheet:
         return LineSeries(reference_line=self.reference_row)
 
     @property
+    def table_col_start_i(self) -> int:
+        """
+        Gets index of first column in sheet's table.
+        By default, this is the first column after the reference column.
+        This value may also be explicitly set by passing an int to this
+        property setter.
+        :return: int
+        """
+        if self._table_col_start is not None:
+            return self._table_col_start
+        else:
+            return self._reference_column_index + 1
+
+    @table_col_start_i.setter
+    def table_col_start_i(self, new_i: int) -> None:
+        """
+        Sets first column which is included in table_columns.
+        :param new_i: int
+        :return: None
+        """
+        if new_i is not None or not isinstance(new_i, int):
+            raise TypeError(
+                'New index should be an integer, or None. Got: %s'
+                % repr(new_i)
+            )
+        self._table_col_start = new_i
+
+    @property
     def rows(self) -> 'LineSeries':
         """
         Gets iterator of rows in Sheet.
         :return: Iterator[Row]
         """
         return LineSeries(reference_line=self.reference_column)
+
+    @property
+    def table_row_start_i(self) -> int:
+        """
+        Gets index of first row in sheet's table.
+        By default, this is the first row after the reference row.
+        This value may also be explicitly set by passing an int to this
+        property setter.
+        :return: int
+        """
+        if self._content_row_start is not None:
+            return self._content_row_start
+        else:
+            return self.reference_row_index + 1
+
+    @table_row_start_i.setter
+    def table_row_start_i(self, new_i: int) -> None:
+        """
+        Sets first row which is included in table_columns.
+        :param new_i: int
+        :return: None
+        """
+        if new_i is not None or not isinstance(new_i, int):
+            raise TypeError(
+                'New index should be an integer, or None. Got: %s'
+                % repr(new_i)
+            )
+        self._content_row_start = new_i
 
     def __str__(self) -> str:
         raise NotImplementedError
@@ -446,11 +505,18 @@ class Sheet:
 class LineSeries:
     """Class storing collection of Line, Column, or Row objects"""
 
-    def __init__(self, reference_line) -> None:
+    def __init__(
+            self,
+            reference_line: 'Line',
+            start_index: int=0,  # iterator start index
+            end_index: int=None,  # iterator end index (exclusive)
+    ) -> None:
         if not isinstance(reference_line, Line):
             raise TypeError('Expected LineSeries to be passed reference line.'
                             'Got instead: %s' % repr(reference_line))
         self.reference_line = reference_line
+        self.start_index = start_index
+        self.end_index = end_index
 
     def __getitem__(self, item: int or float or str):
         """
@@ -469,29 +535,22 @@ class LineSeries:
         Returns Generator that iterates over columns in LineSeries
         :return: Generator<Line>
         """
-        assert isinstance(self.reference_line, (
-            Office.XW.Column,
-            Office.XW.Row,
-            Office.Uno.Column,
-            Office.Uno.Row
-        ))
-        for cell in self.reference_line:
-            if self._contents_type == 'rows':
-                yield cell.row
-            elif self._contents_type == 'columns':
-                yield cell.column
-            else:
-                assert False
+        # find whether this is a series of rows or columns
+        # todo
+
 
     def __len__(self) -> int:
         """
         Returns size of LineSeries
         :return: int
         """
-        count = 0
-        try:
-            while self.__iter__().__next__():
-                count += 1
+        count = self.start_index
+        try:  # it feels like there should be a better way to do this
+            assert self.end_index is None or isinstance(self.end_index, int)
+            # while there is a next cell, and it is inside range
+            while self.__iter__().__next__() and \
+                    (self.end_index is None or count + 1 < self.end_index):
+                count += 1  # increment count
         except StopIteration:
             return count
 
@@ -576,8 +635,6 @@ class Line:
     Abstract class for a line of cells.
     Sub-classed by both Row and Column
     """
-    sheet = None  # these are to be set on init in subclasses
-    index = None  # index of this line.
 
     def __init__(
         self,
@@ -601,7 +658,7 @@ class Line:
         self.index = index
         self.reference_index = index
 
-    def __getitem__(self, item: int or str) -> 'Cell':
+    def __getitem__(self, item: int or str):  # returns Cell or Generator
         raise NotImplementedError
         # implemented by office program specific subclasses
 
@@ -703,7 +760,7 @@ class Column(Line):
     Abstract Column class, extended by Office.XW.Column and Office.XW.Row
     """
 
-    def __getitem__(self, cell_identifier) -> 'Cell':
+    def __getitem__(self, cell_identifier):  # returns Cell or Generator
         """
         Gets cell from passed identifier.
         If identifier is string, presumes it is a cell's name.
@@ -1321,6 +1378,7 @@ class Office:
 
             def __init__(self) -> None:
                 # not an error; provided by macro caller
+                # noinspection PyUnresolvedReferences
                 desktop = XSCRIPTCONTEXT.getDesktop()
                 py_uno_model = desktop.getCurrentComponent()
                 if not hasattr(py_uno_model, 'Sheets'):
@@ -4001,6 +4059,74 @@ class Associations:
         :return: deque
         """
         return self._assoc_deque
+
+
+class RowLog:
+    """
+    Keeps a record of previously translated rows, to detect duplicates.
+
+    These records are kept in a logs folder in the app dir, where
+    each source translation is recorded as a new file
+    """
+    translation_logs_dir_name = 'logs'
+    log_file_ext = '.csv'
+
+    def __init__(self, path: str):
+        if not os.path.exists(path):
+            pass  # todo: try to make path
+        self.path = path
+        self._logs = {}
+
+    def find_duplicates(self, value, column, exempt_hash=None):
+
+    def make_log(self, src_sheet: 'Sheet'):
+        """
+        Creates a log file from a source sheet
+        :param src_sheet:
+        :return: None
+        """
+
+    class RowLogFile:
+        """
+        Class operating on a single log
+        """
+        def __init__(self, path: str, sheet: 'Sheet'=None) -> None:
+            """
+            Creates a new RowLogFile at/from passed path.
+            If a sheet is passed to constructor,
+            creates a new log at path. If no sheet is passed,
+            attempts to read a log from file at path.
+            :param path: str
+            :param sheet: sheet
+            """
+            self.path = path
+            self.columns = {}  # dictionary of column value sets
+            if sheet:
+                self.write(sheet)
+            else:
+                self.read(self.path)
+
+        def write(self, sheet: 'Sheet'):
+            """
+            Writes sheet info to file
+            :param sheet: Sheet
+            :return: None
+            """
+            with open(self.path, 'w') as f:
+                writer = csv.DictWriter(
+                    f, sheet.columns.names,  # generator
+                    restval=None,
+                    extrasaction='raise')  # raise ValueError on unexpected key
+                for i in range(sheet.)
+
+
+
+        def read(self, path: str=None):
+            """
+            Reads columns in from file.
+            :param path: str path to file to red
+            :return: None
+            """
 
 
 class Color:
