@@ -42,6 +42,7 @@ TODO:
 *   Increase speed at which values in Excel are accessed
     *   Access whole lines of data at a time, rather than individual cells
         *   May be faster / easier to implement
+    *   Disable cell display update on value change during Translation commit
 *   Add message to user, asking them not to edit source sheet
 
 Contents:
@@ -209,7 +210,113 @@ class Model:
         raise NotImplementedError
 
 
-class Sheet:
+class WorkBookComponent:
+    """
+    Abstract class with common methods for classes that exist within
+    a workbook.
+    """
+    def sheet(self) -> 'Sheet':
+        """
+        Returns reference to sheet to which this WorkBookComponent
+        belongs. If this component is a sheet,
+        returns reference to self.
+        :return: Sheet
+        """
+        raise NotImplementedError
+
+    @property
+    def parents(self):
+        """
+        Gets parents of WorkBookComponent (instances containing this component)
+        :return: Generator[WorkBookComponent]
+        """
+        raise NotImplementedError
+
+    @property
+    def instantiated_parents(self):
+        """
+        Works as 'parents' method, but returns only parents that have
+        been instantiated.
+        This method was written to facilitate clearing caches when a
+        sub-component has been changed
+        :return: Generator[WorkBookComponent]
+        """
+        raise NotImplementedError
+
+    @staticmethod
+    def value_cache(getter: callable) -> callable:
+        """
+        decorator that caches results of the passed method
+        :param getter: callable
+        :return: callable
+        """
+
+    class ValueCache:
+        """
+        Class to be used by value_cache decorator
+        """
+
+        def __init__(self, getter) -> None:
+            self._getter = getter
+
+        def __call__(self, *args, **kwargs):
+            """
+            Method to return value
+            :return: Any
+            """
+            o = args[0]  # get 'self' arg for method being called
+            # if caching is not possible, just call getter
+            # to do this, find sheet and check if exclusive_editor is True
+            if not o.sheet.exclusive_editor:
+                return self._getter(*args, **kwargs)
+            # get cache
+            try:
+                cache = o.__value_cache
+            except AttributeError:
+                cache = o.__value_cache = {}
+            # if caching is possible, but nothing is in cache, set it
+            try:
+                value = cache[self]  # try to return cached value
+            except KeyError:
+                value = cache[self] = self._getter(*args, **kwargs)
+            return value
+
+    @staticmethod
+    def clear_cache(setter):
+        """
+        decorator method to be used by value setter.
+        amends method to clear cache of this WorkBookComponent and
+        instantiated parents.
+        :param setter: callable
+        :return: callable
+        """
+
+        def setter_wrapper(*args, **kwargs) -> None:
+            """
+            Function wrapping passed setter method.
+            first clears cached values,
+            then calls original setter method with values.
+            :return: None
+            """
+            o = args[0]  # get 'self' argument passed to method
+            assert isinstance(o, WorkBookComponent)
+            # for each WorkBookComponent modified, clear its cache
+            modified_components = \
+                [o] + [parent for parent in o.instantiated_parents]
+            for component in modified_components:
+                try:  # try to find cache.
+                    cache = component.__value_cache
+                except AttributeError:
+                    pass
+                else:  # if cell has a cache, clear it.
+                    assert isinstance(cache, dict)
+                    cache.clear()
+            setter(*args, **kwargs)  # call original value setter method
+
+        return setter_wrapper
+
+
+class Sheet(WorkBookComponent):
     """
     Abstract class for sheet handling cell values of a passed sheet.
     Inherited from by PyUno.Sheet and XW.Sheet.
@@ -221,6 +328,8 @@ class Sheet:
     _table_col_start = None  # default start index of table_col iter
     exclusive_editor = False  # true if no concurrent editing will occur
 
+    _all_sheets = {}  # all sheets so far instantiated, by repr string
+
     def __init__(
             self,
             i7e_sheet,  # used by subclasses
@@ -230,7 +339,38 @@ class Sheet:
         self.i7e_sheet = i7e_sheet
         self.reference_column_index = reference_column_index
         self.reference_row_index = reference_row_index
-        self._cell_inst_dict = {}  # dictionary of cell instances by position
+        self.sheet = self  # returns self, as required by WorkBookComponent
+        assert repr(self) not in Sheet._all_sheets
+        Sheet._all_sheets[repr(self)] = self
+
+    @staticmethod
+    def factory(i7e_sheet, ref_row_index=0, ref_col_index=0) -> 'Sheet':
+        """
+        Factory method return Sheet.
+        This method does not create duplicate sheets,
+        instead, it returns a reference to a pre-existing sheet
+        if one exists.
+        :return: Sheet
+        """
+        sheet_class = Office.get_sheet_class()
+        key = sheet_class.key(i7e_sheet)
+        try:
+            return Sheet._all_sheets[key]
+        except KeyError:
+            return sheet_class(
+                i7e_sheet=i7e_sheet,
+                reference_column_index=ref_col_index,
+                reference_row_index=ref_row_index
+            )
+
+    @staticmethod
+    def key(i7e_sheet) -> object:
+        """
+        Gets key unique to edited sheet from interface sheet.
+        :param i7e_sheet: interface sheet
+        :return: object
+        """
+        raise NotImplementedError
 
     def get_column(
             self,
@@ -254,8 +394,11 @@ class Sheet:
         :param column_index: int
         :return: Column
         """
-        raise NotImplementedError
-        # implemented by office program specific subclasses
+        return Column.factory(
+            sheet=self,
+            index=column_index,
+            reference_index=self.reference_column_index
+        )
 
     def get_column_by_name(self, column_name: int or float or str) -> 'Column':
         """
@@ -300,8 +443,11 @@ class Sheet:
         :param row_index: int
         :return: Row
         """
-        raise NotImplementedError
-        # implemented by office program specific subclasses
+        return Row.factory(
+            sheet=self,
+            index=row_index,
+            reference_index=self.reference_row_index
+        )
 
     def get_row_by_name(self, row_name: int or str or float) -> 'Row':
         """
@@ -372,22 +518,11 @@ class Sheet:
                 assert isinstance(y_identifier, int)  # sanity check
                 y = y_identifier
             # We now have x and y indices for the cell
-            # now we check if an instance for that position already
-            # exists. If so, retrieve it, otherwise, make a new Cell
-            # instance, add it to the dict, and return it.
-            pos = (x, y)
-            if pos not in self._cell_inst_dict:
-                self._cell_inst_dict[pos] = self._make_cell((x, y))
-            return self._cell_inst_dict[pos]
-
-    def _make_cell(self, coord: tuple):
-        """
-        Returns cell with reference to self
-        :return:
-        """
-        raise NotImplementedError(
-            'make_cell is defined in sub-classes of Sheet'
-        )
+            # now we call the cell factory method, which returns a cell
+            # of the correct type. The Cell factory method will not
+            # create duplicate cells, instead it will return a
+            # reference to the pre-existing cell in that sheet+position
+            return Cell.factory(sheet=self, position=(x, y))
 
     @property
     def reference_row_index(self) -> int:
@@ -455,6 +590,17 @@ class Sheet:
         return LineSeries(reference_line=self.reference_row)
 
     @property
+    def table_columns(self) -> 'LineSeries':
+        """
+        Gets iterator of columns in sheet's table contents
+        :return: Iterator[Column]
+        """
+        return LineSeries(
+            reference_line=self.reference_column,
+            start_index=self.table_col_start_i
+        )
+
+    @property
     def table_col_start_i(self) -> int:
         """
         Gets index of first column in sheet's table.
@@ -491,6 +637,17 @@ class Sheet:
         return LineSeries(reference_line=self.reference_column)
 
     @property
+    def table_rows(self) -> 'LineSeries':
+        """
+        Gets iterator of table rows in Sheet
+        :return: Iterator[Row]
+        """
+        return LineSeries(
+            reference_line=self.reference_column,
+            start_index=self.table_row_start_i
+        )
+
+    @property
     def table_row_start_i(self) -> int:
         """
         Gets index of first row in sheet's table.
@@ -518,12 +675,26 @@ class Sheet:
             )
         self._content_row_start = new_i
 
+    @property
+    def parents(self):
+        return  # nothing to yield or return
+
+    @property
+    def instantiated_parents(self):
+        return  # nothing to yield or return
+
     def __str__(self) -> str:
+        raise NotImplementedError
+
+    def __repr__(self) -> str:
         raise NotImplementedError
 
 
 class LineSeries:
     """Class storing collection of Line, Column, or Row objects"""
+
+    COLUMNS_STR = 'columns'
+    ROWS_STR = 'rows'
 
     def __init__(
             self,
@@ -556,8 +727,15 @@ class LineSeries:
         :return: Generator<Line>
         """
         # find whether this is a series of rows or columns
-        # todo
-
+        if self.end_index is not None:
+            ref_cells = self.reference_line[self.start_index:self.end_index]
+        else:
+            ref_cells = self.reference_line[self.start_index:]
+        for cell in ref_cells:
+            if self._contents_type == LineSeries.COLUMNS_STR:
+                return cell.column
+            if self._contents_type == LineSeries.ROWS_STR:
+                return cell.rows
 
     def __len__(self) -> int:
         """
@@ -583,9 +761,9 @@ class LineSeries:
         """
         for cell in self.reference_line:
             if cell.value == name:
-                if self._contents_type == 'columns':
+                if self._contents_type == LineSeries.COLUMNS_STR:
                     return cell.column
-                elif self._contents_type == 'rows':
+                elif self._contents_type == LineSeries.ROWS_STR:
                     return cell.row
 
     def get_by_index(self, index: int) -> 'Line':
@@ -650,11 +828,12 @@ class LineSeries:
                             'Column. Got: %s' % repr(self.reference_line))
 
 
-class Line:
+class Line(WorkBookComponent):
     """
     Abstract class for a line of cells.
     Sub-classed by both Row and Column
     """
+    _all = {}  # overwritten in sub-classes.
 
     def __init__(
         self,
@@ -662,6 +841,10 @@ class Line:
         index: int,
         reference_index: int,
     ) -> None:
+        # check if an instance already exists in dict of all Row/Col.
+        # It shouldn't.
+        assert (sheet, index) not in self._all
+        self._all[(sheet, index)] = self  # add self to _all dict
         if not isinstance(sheet, Sheet):
             raise TypeError(
                 'Expected subclass of Sheet. Instead got %s'
@@ -670,27 +853,69 @@ class Line:
             raise TypeError(
                 'Expected line index to be an int. '
                 'Instead got %s' % repr(index))
+        if index < 0:
+            raise ValueError('Index must be 0 or greater. Got: %s' % index)
         if not isinstance(reference_index, int):
             raise TypeError(
                 'Expected reference name index to be an int, '
                 'Instead got %s' % repr(reference_index))
+        if reference_index < 0:
+            raise ValueError('ref index must be 0 or greater. Got: %s' % index)
         self.sheet = sheet
         self.index = index
         self.reference_index = index
 
-    def __getitem__(self, item: int or str):  # returns Cell or Generator
-        raise NotImplementedError
-        # implemented by office program specific subclasses
+    def __getitem__(self, cell_identifier):  # returns Cell or Generator
+        """
+        Gets cell from passed identifier.
+        If identifier is string, presumes it is a cell's name.
+        If identifier is number, presumes it is a
+        cell's index.
+        To ensure the right method of fetching a cell is used,
+        use .get_by_name or .get_by_index
+        :param cell_identifier: str or int
+        :return: Cell
+        """
+        assert isinstance(cell_identifier, (int, float, str, slice)), \
+            'Expected cell_identifier to be number, str, or slice got %s ' \
+            % cell_identifier
+        if isinstance(cell_identifier, slice):
+            return self.slice(cell_identifier)
+        if isinstance(cell_identifier, int):
+            return self.get_cell_by_index(cell_identifier)
+        else:
+            return self.get_cell_by_reference(cell_identifier)
 
     def __iter__(self):
         raise NotImplementedError
         # implemented by office program specific subclasses
 
+    @WorkBookComponent.value_cache
     def __len__(self) -> int:
         count = 0
-        for each in self:
+        for _ in self:
             count += 1
         return count
+
+    @classmethod
+    def exists(cls, sheet: Sheet, index: int):
+        """
+        Returns bool of whether a line of sheet+index already exists
+        :param sheet: Sheet
+        :param index: int
+        :return: bool
+        """
+        return sheet, index in cls._all
+
+    def slice(self, s: slice):  # return cell generator
+        """
+        Returns generator returning items in slice
+        :param s: slice
+        :return: Generator[Cell]
+        """
+        for i in range(s.start, s.stop, s.step):
+            if i in range(len(self)):
+                yield self[i]
 
     def get_cell_by_index(self, index: int) -> 'Cell':
         """
@@ -715,8 +940,7 @@ class Line:
         """
         Clears line of cells.
         If Include header is True; clears cell data in cells
-        preceding and including re
-        a
+        preceding and including header row.
         :param include_header: bool
         :return: None
         """
@@ -779,30 +1003,38 @@ class Line:
             self.name
         )
 
+    @property
+    def parents(self):
+        yield self.sheet
+
+    @property
+    def instantiated_parents(self):
+        yield self.sheet
+
 
 class Column(Line):
     """
     Abstract Column class, extended by Office.XW.Column and Office.XW.Row
     """
+    _all = {}  # dict storing all unique sheet+index possibilities
 
-    def __getitem__(self, cell_identifier):  # returns Cell or Generator
+    @staticmethod
+    def factory(sheet: 'Sheet', index: int, reference_index: int) -> 'Column':
         """
-        Gets cell from passed identifier.
-        If identifier is string, presumes it is a cell's name.
-        If identifier is number, presumes it is a
-        cell's index.
-        To ensure the right method of fetching a cell is used,
-        use .get_by_name or .get_by_index
-        :param cell_identifier: str or int
-        :return: Cell
+        Factory returning a Row belonging to sheet, at passed index,
+        with cell name/keys determined by reference_index.
+        :param sheet: Sheet
+        :param index: int
+        :param reference_index: int
+        :return: Column
         """
-        assert isinstance(cell_identifier, (int, str)), \
-            'Expected cell_identifier to be int or str, got %s ' \
-            % cell_identifier
-        if isinstance(cell_identifier, int):
-            return self.get_cell_by_index(cell_identifier)
-        else:
-            return self.get_cell_by_reference(cell_identifier)
+        # first try to find a pre-existing row with that sheet + index
+        column_key = sheet, index  # sheet instance is expected to be unique
+        try:
+            column = Column._all[column_key]
+        except KeyError:
+            column = Office.get_column_class()(sheet, index, reference_index)
+        return column
 
     def get_cell_by_index(self, index: int) -> 'Cell':
         """
@@ -842,23 +1074,25 @@ class Row(Line):
     """
     Abstract Row obj. Extended by Office.XW.Row and Office.Uno.Row
     """
+    _all = {}  # dict storing all unique sheet+index possibilities
 
-    def __getitem__(self, cell_identifier) -> 'Cell':
+    @staticmethod
+    def factory(sheet: 'Sheet', index: int, reference_index: int) -> 'Row':
         """
-        Gets cell from passed identifier.
-        If identifier is string, presumes it is a cell's name.
-        If identifier is number, presumes it is a
-        cell's index.
-        To ensure the right method of fetching a cell is used,
-        use .get_by_name or .get_by_index.
-        :param cell_identifier: str or int
-        :return: Cell
+        Factory returning a Row belonging to sheet, at passed index,
+        with cell name/keys determined by reference_index.
+        :param sheet: Sheet
+        :param index: int
+        :param reference_index: int
+        :return: Row
         """
-        assert isinstance(cell_identifier, (str, int))
-        if isinstance(cell_identifier, int):
-            return self.get_cell_by_index(cell_identifier)
-        else:
-            return self.get_cell_by_reference(cell_identifier)
+        # first try to find a pre-existing row with that sheet + index
+        row_key = sheet, index
+        try:
+            row = Row._all[row_key]
+        except KeyError:
+            row = Office.get_row_class()(sheet, index, reference_index)
+        return row
 
     def get_cell_by_index(self, index: int) -> 'Cell':
         """
@@ -900,10 +1134,9 @@ class Row(Line):
         return self.sheet.reference_column_index
 
 
-class Cell:
+class Cell(WorkBookComponent):
     """ Class handling usage of a single cell in office worksheet """
-    position = None
-    sheet = None
+    _all_cells = {}  # dict of all created cells, prevents duplication
 
     def __init__(
             self,
@@ -914,6 +1147,26 @@ class Cell:
         assert all([isinstance(item, int) for item in position])
         self.position = tuple(position)
         self.sheet = sheet
+
+    @staticmethod
+    def factory(sheet: Sheet, position: tuple) -> 'Cell':
+        """
+        Gets cell belonging to sheet, with passed position.
+        If a cell with the same sheet + position already exists,
+        returns that cell instead.
+        :param sheet: Sheet
+        :param position: tuple[int, int]
+        :return: Cell
+        """
+        # first try to return an existing cell
+        cell_key = repr(sheet), position
+        try:
+            cell = Cell._all_cells[cell_key]
+        except KeyError:
+            # if cell does not exist, create it
+            Cell._all_cells[cell_key] = cell = \
+                Office.get_cell_class()(sheet, position)
+        return cell
 
     def set_color(self, color: int or list or tuple or Color) -> None:
         """
@@ -1046,6 +1299,32 @@ class Cell:
         """
         return self.position[1]
 
+    @property
+    def parents(self):
+        """
+        Returns generator iterating over parent instances.
+        In the case of Cell this means row, column, sheet instances
+        :return: Generator[WorkBookComponent]
+        """
+        yield self.row
+        yield self.column
+        yield self.sheet
+
+    @property
+    def instantiated_parents(self):
+        """
+        Returns parents of this cell that have been instantiated.
+        This method was written for the purpose of clearing parent
+        caches.
+        :return: Generator[WorkBookComponent]
+        """
+        # yield row
+        if Row.exists(self.sheet, self.y):
+            yield self.row
+        if Column.exists(self.sheet, self.x):
+            yield self.row
+        yield self.sheet
+
     def __repr__(self) -> str:
         """
         Gets cell repr with sheet, position, and value
@@ -1057,61 +1336,6 @@ class Cell:
 
     def __str__(self) -> str:
         return 'Cell[%s, Value: %s]' % (self.position, self.value.__repr__())
-
-    @staticmethod
-    def value_cache(getter):
-        """
-        Decorator function for cell value, string, float getters,
-        which utilizes caching to store their values until a
-        new value is assigned.
-        :param getter: callable
-        :return: callable
-        """
-        assert hasattr(getter, '__call__')
-        return Cell.ValueCache(getter)
-
-    class ValueCache:
-        """
-        Class to be used by value_cache decorator
-        """
-
-        def __init__(self, getter) -> None:
-            self._getter = getter
-
-        def __call__(self, cell: 'Cell'):
-            """
-            Method to return value
-            :return: Any
-            """
-            # if caching is not possible, just call getter
-            if not cell.sheet.exclusive_editor:
-                return self._getter(cell)
-            # get cache
-            try:
-                cache = cell.__cache
-            except AttributeError:
-                cache = cell.__cache = {}
-            # if caching is possible, but nothing is in cache, set it
-            try:
-                value = cache[self]  # try to return cached value
-            except KeyError:
-                value = cache[self] = self._getter(cell)
-            return value
-
-        def clear_cache(self, setter):
-            """
-            decorator method to be used by value setter.
-            amends setter to clear cache
-            :param setter: callable
-            :return: callable
-            """
-            def setter_wrapper(cell, new_value):
-                self._has_cache = False  # clear cached value
-                setter(cell, new_value)
-            return setter_wrapper
-
-        def __repr__(self) -> str:
-            return 'ValueCache[%s]' % self._getter.n
 
 
 class CellLine:
@@ -1320,24 +1544,11 @@ class Office:
                     reference_row_index=reference_row_index
                 )
 
-            def get_row_by_index(self, row_index: int or str):
-                if not isinstance(row_index, int):
-                    raise TypeError('Row index must be an int, got %s'
-                                    % row_index)
-                if row_index < 0:
-                    raise ValueError('Passed index must be 0 or greater.')
-                return Office.XW.Row(self, row_index, self.reference_row_index)
-
-            def get_column_by_index(self, column_index: int):
-                if not isinstance(column_index, int):
-                    raise TypeError('Column index must be an int, got %s'
-                                    % column_index)
-                if column_index < 0:
-                    raise ValueError('Passed index must be 0 or greater.')
-                return Office.XW.Column(
-                    self,
-                    column_index,
-                    self.reference_row_index
+            @staticmethod
+            def key(i7e_sheet):
+                return 'Sheet[%s::%s]' % (
+                    i7e_sheet.name,
+                    i7e_sheet.book.fullname,
                 )
 
             def __str__(self) -> str:
@@ -1346,19 +1557,11 @@ class Office:
                     self.i7e_sheet.book.name,
                 )
 
-            def _make_cell(self, coord: tuple) -> 'Cell':
-                """
-                Makes cell that exists in Sheet with passed position
-                This method exists so that a method generating cells of
-                the appropriate type is available to be overridden by
-                the abstract class 'Sheet.'
-                :param coord: tuple[int, int]
-                :return: Cell
-                """
-                assert isinstance(coord, tuple)
-                assert len(coord) == 2
-                assert all([isinstance(item, int) for item in coord])
-                return Office.XW.Cell(self, coord)
+            def __repr__(self) -> str:
+                return 'Sheet[%s::%s]' % (
+                    self.i7e_sheet.name,
+                    self.i7e_sheet.book.fullname,
+                )
 
         class Line(Line):
             pass  # no methods defined here at this time.
@@ -1431,15 +1634,15 @@ class Office:
                 # XW passes position tuples as row, column
                 return self.sheet.i7e_sheet.range(y, x)
 
+            @property
             @Cell.value_cache
-            def _value(self) -> int or float or str or None:
+            def value(self) -> int or float or str or None:
                 return self._range.value
 
-            @_value.clear_cache
-            def set_value(self, new_value) -> None:
+            @value.setter
+            @Cell.clear_cache
+            def value(self, new_value) -> None:
                 self._range.value = new_value
-
-            value = property(_value, set_value)
 
             @property
             @Cell.value_cache
@@ -1569,51 +1772,9 @@ class Office:
                     reference_column_index=reference_column_index
                 )
 
-            def get_column_by_index(self, column_index: int) -> Column:
-                """
-                Gets column of passed index
-                :param column_index: int
-                :return: Column
-                """
-                if not isinstance(column_index, int):
-                    raise TypeError('Column index must be an int, got %s'
-                                    % column_index)
-                if column_index < 0:
-                    raise ValueError('Passed index must be 0 or greater.')
-                return Office.Uno.Column(
-                    sheet=self,
-                    column_index=column_index,
-                    reference_column_index=self.reference_column_index
-                )
-
-            def get_row_by_index(self, row_index: int or str) -> Row:
-                """
-                Gets row of passed index
-                :param row_index: int
-                :return: Row
-                """
-                if not isinstance(row_index, int):
-                    raise TypeError('row_index must be an int, got %s '
-                                    % row_index)
-                return Office.Uno.Row(
-                    sheet=self,
-                    row_index=row_index,
-                    reference_row_index=self.reference_row_index
-                )
-
-            def _make_cell(self, coord: tuple) -> 'Cell':
-                """
-                Makes cell that exists in Sheet with passed position
-                This method exists so that a method generating cells of
-                the appropriate type is available to be overridden by
-                the abstract class 'Sheet.'
-                :param coord: tuple[int, int]
-                :return: Cell
-                """
-                assert isinstance(coord, tuple)
-                assert len(coord) == 2
-                assert all([isinstance(item, int) for item in coord])
-                return Office.Uno.Cell(self, coord)
+            @staticmethod
+            def key(i7e_sheet):
+                return i7e_sheet  # todo: get name of sheet
 
         class Line(Line):
             pass  # no methods defined here anymore,
@@ -1696,8 +1857,9 @@ class Office:
                 """
                 return self._uno_sheet.getCellByPosition(*self.position)
 
+            @property
             @Cell.value_cache
-            def _value(self) -> int or float or str:
+            def value(self) -> int or float or str:
                 """
                 Gets value of cell.
                 :return: str or float
@@ -1711,8 +1873,9 @@ class Office:
                 elif t == 'VALUE':
                     return self._source_cell.getValue()
 
-            @_value.clear_cache
-            def set_value(self, new_value: int or float or str) -> None:
+            @value.setter
+            @Cell.clear_cache
+            def value(self, new_value: int or float or str) -> None:
                 """
                 Sets source cell string and number value appropriately for
                 a new value.
@@ -1725,18 +1888,18 @@ class Office:
                 else:
                     self.float = new_value
 
-            value = property(_value, set_value)
-
+            @property
             @Cell.value_cache
-            def _string(self) -> str:
+            def string(self) -> str:
                 """
                 Returns string value directly from source cell
                 :return: str
                 """
                 return self._source_cell.getString()
 
-            @_string.clear_cache
-            def set_string(self, new_string: str) -> None:
+            @string.setter
+            @Cell.clear_cache
+            def string(self, new_string: str) -> None:
                 """
                 Sets string value of source cell directly
                 :param new_string: str
@@ -1744,18 +1907,18 @@ class Office:
                 assert isinstance(new_string, str)
                 self._source_cell.setString(new_string)
 
-            string = property(_string, set_string)
-
+            @property
             @Cell.value_cache
-            def _float(self) -> float:
+            def float(self) -> float:
                 """
                 Returns float value directly from source cell 'value'
                 :return: float
                 """
                 return self._source_cell.getValue()
 
-            @_float.clear_cache
-            def set_float(self, new_float: int or float) -> None:
+            @float.setter
+            @Cell.clear_cache
+            def float(self, new_float: int or float) -> None:
                 """
                 Sets float value of source cell directly
                 :param new_float: int or float
@@ -1764,8 +1927,6 @@ class Office:
                 assert isinstance(new_float, (int, float))
                 new_value = float(new_float)
                 self._source_cell.setValue(new_value)
-
-            float = property(_float, set_float)
 
     @staticmethod
     def get_interface() -> str or None:
@@ -1824,6 +1985,7 @@ class Office:
     def get_cell_class() -> type:
         """Gets appropriate Cell class"""
         return Office.get_interface_class().Cell
+
 
 ###############################################################################
 # Column Data
