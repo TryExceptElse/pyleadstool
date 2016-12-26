@@ -676,6 +676,27 @@ class Sheet(WorkBookComponent):
         self._content_row_start = new_i
 
     @property
+    def screen_updating(self) -> bool or None:
+        """
+        Gets bool of whether screen updating occurs on sheet.
+        does nothing here, may be overridden by subclasses.
+        returns None if this sheet type does not support this method.
+        :return: bool
+        """
+        return
+
+    @screen_updating.setter
+    def screen_updating(self, new_bool: bool) -> None:
+        """
+        Sets whether sheet refreshes its display after update of
+        values, etc.
+        Does nothing here, subclasses may implement this method.
+        :param new_bool: bool
+        :return: None
+        """
+        return
+
+    @property
     def parents(self):
         return  # nothing to yield or return
 
@@ -1551,6 +1572,14 @@ class Office:
                     i7e_sheet.book.fullname,
                 )
 
+            @property
+            def screen_updating(self) -> None:
+                return self.i7e_sheet.screen_updating
+
+            @screen_updating.setter
+            def screen_updating(self, new_bool: bool) -> None:
+                self.i7e_sheet.screen_updating = new_bool
+
             def __str__(self) -> str:
                 return 'Sheet[%s::%s]' % (
                     self.i7e_sheet.name,
@@ -2050,9 +2079,15 @@ class Translation:
             self.remove_whitespace_in_translation_rows()
 
     def commit(self):
-        print('commiting translations')
-        self.clear_target()
-        self.apply_translation_rows()
+        try:
+            print('committing translations')
+            self.source_sheet.screen_updating = False
+            self.target_sheet.screen_updating = False
+            self.clear_target()
+            self.apply_translation_rows()
+        finally:
+            self.source_sheet.screen_updating = True
+            self.target_sheet.screen_updating = True
 
     def apply_translation_rows(self):
         for y in self.translation_rows:
