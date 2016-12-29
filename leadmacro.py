@@ -65,8 +65,9 @@ in ubuntu, this can be installed via
 
 import collections
 import os
+import datetime  # used for saving logs by time
 import pickle
-import csv
+import csv  # used for saving logs
 import platform
 import sys
 
@@ -1008,6 +1009,15 @@ class Line(WorkBookComponent):
         """
         return self[self.name_cell_index].value
 
+    def to_dict(self) -> dict:
+        """
+        Returns line values as dictionary, with cell values as values,
+        and corresponding reference row values as keys.
+        :return: dict
+        """
+        return {line_cell.value: ref_cell.value for
+                line_cell, ref_cell in zip(self, self._reference_line)}
+
     def __repr__(self) -> str:
         return '%s(sheet=%s, index(0-base)=%s, ref_index=%s) name: %s' % (
             self.__class__.__name__,
@@ -1574,11 +1584,11 @@ class Office:
 
             @property
             def screen_updating(self) -> None:
-                return self.i7e_sheet.screen_updating
+                return self.i7e_sheet.book.app.screen_updating
 
             @screen_updating.setter
             def screen_updating(self, new_bool: bool) -> None:
-                self.i7e_sheet.screen_updating = new_bool
+                self.i7e_sheet.book.app.screen_updating = new_bool
 
             def __str__(self) -> str:
                 return 'Sheet[%s::%s]' % (
@@ -2982,7 +2992,7 @@ class TranslationDialog(PyLeadDlg):
             self.source_sheet = source_sheet
             self.target_sheet = target_sheet
             self.col_assoc = Associations()
-            assert isinstance(presets, list) or presets is None, \
+            assert presets is None or isinstance(presets, list), \
                 'Expected presets to be a list or None. Got %s' % presets
             if presets is not None:
                 assert all([isinstance(item, dict) for item in presets])
@@ -3749,7 +3759,7 @@ class FileDlg(QtW.QDialog):
         self.setFocus()
         assert isinstance(saves_dir, str), 'expected str, got %s' % saves_dir
         self.saves_dir_path = saves_dir
-        if not OS.check_file_path_exists(saves_dir):
+        if not OS.ensure_dir_exists(saves_dir):
             print('%s could not find path %s and failed to create it.' %
                   (self.__class__.__name__, saves_dir))
             msg = QtW.QMessageBox(
@@ -3879,7 +3889,7 @@ class LoadTranslationsDlg(FileDlg):
         # then delete file
         file_name = self.file_selection_field.currentText()
         if file_name == '':
-            return
+            return False
         file_path = os.path.join(
             OS.get_translations_save_dir_path(),
             file_name) + SERIALIZED_OBJ_SUFFIX
@@ -4078,7 +4088,7 @@ class OS:
         )
 
     @staticmethod
-    def check_file_path_exists(file_path: str) -> bool:
+    def ensure_dir_exists(file_path: str) -> bool:
         """
         Checks that file path exists, creates it if it does not,
         and returns bool of whether file path now exists (
@@ -4142,7 +4152,7 @@ class Settings(dict):
         """
         settings_dir = os.path.dirname(self.file_path)
         print('checking settings dir \'%s\' exists' % settings_dir)
-        return OS.check_file_path_exists(settings_dir)
+        return OS.ensure_dir_exists(settings_dir)
 
     @property
     def saved_settings(self) -> dict:
@@ -4252,6 +4262,11 @@ class Associations:
                 yield assoc[1]
 
     def load_file_path(self, file_path: str):
+        """
+        Loads associations from file.
+        :param file_path: str path
+        :return: None
+        """
         if not isinstance(file_path, str):
             raise TypeError('file_path must be str. Got: %s' % file_path)
         assoc_deque = None
@@ -4285,7 +4300,7 @@ class Associations:
             raise TypeError('file_path should be a str. Got: %s' % file_path)
         try:
             with open(file_path, 'wb') as assoc_file:
-                pickle.dump(self.assoc_deque, assoc_file)
+                pickle.dump(self._assoc_deque, assoc_file)
         except IOError:
             print('could not save associations to file')
             print('\n'.join([str(i) for i in sys.exc_info()]))
@@ -4352,15 +4367,6 @@ class Associations:
     def is_empty(self) -> bool:
         return len(self._assoc_deque) == 0
 
-    @property
-    def assoc_deque(self):
-        """
-        Yields associations deck
-        Written to be used when cleaning AssociationMap of old values.
-        :return: deque
-        """
-        return self._assoc_deque
-
 
 class RowLog:
     """
@@ -4376,32 +4382,152 @@ class RowLog:
         if not os.path.exists(path):
             pass  # todo: try to make path
         self.path = path
-        self._logs = {}
+        self._groups = self._find_groups()
 
-    def find_duplicates(self, value, column, exempt_hash=None):
+    def _find_groups(self):
+        """
+        Looks through self.path for sub-directories,
+        and adds them as groups.
+        :return: dict
+        """
+        return {
+            item_name: RowLog.Group(os.path.join(self.path, item_name)) for
+            item_name in os.listdir(self.path) if
+            os.path.isdir(os.path.join(self.path, item_name))
+        }
 
-    def make_log(self, src_sheet: 'Sheet'):
+    def find_duplicates(
+            self,
+            value: int or float or str,
+            group: str,
+            column_name: int or float or str
+            ):
+        """
+        Finds duplicates of passed value in columns of passed name.
+        Returns generator of tuple[log file name, row index]
+        :param value: int, float or str
+        :param group: str
+        :param column_name: int, float, or str
+        :return: Generator[tuple[log file name str, row index]]
+        """
+        return self._groups[group].find_duplicates(value, column_name)
+
+    def new_group(self, name: str) -> None:
+        """
+        Creates a new group with passed name
+        :param name:
+        :return:
+        """
+        self._groups[name] = RowLog.Group(os.path.join(self.path, name))
+
+    def make_log(self, group_name: str, sheet: 'Sheet'):
         """
         Creates a log file from a source sheet
-        :param src_sheet:
+        :param group_name: str name of group to add sheet to
+        :param sheet: Sheet to log
         :return: None
         """
+        self._groups[group_name].add_file(sheet)
+
+    @property
+    def group_names(self):
+        """
+        Yields each group name in self
+        :return: Generator[str]
+        """
+        for group_name in self._groups:
+            assert isinstance(group_name, str)
+            yield group_name
+
+    class Group:
+        """
+        Class representing a grouping of source leads
+        """
+        def __init__(self, path: str) -> None:
+            if os.path.exists(path) and not os.path.isdir(path):
+                raise ValueError('Path passed exists and is not a dir')
+            self.path = path
+            if not OS.ensure_dir_exists(path):  # ensure .path is a dir
+                raise IOError('path %s does not exist and could not be'
+                              'created.' % self.path)
+            self.log_files = self._find_log_files()
+
+        def _find_log_files(self) -> dict:
+            return {
+                filename:
+                    RowLog.RowLogFile(os.path.join(self.path, filename)) for
+                filename in os.listdir(self.path) if
+                filename.endswith(RowLog.log_file_ext)
+            }
+
+        def find_duplicates(
+                self,
+                value: int or float or str,
+                column_name: int or float or str
+                ):
+            """
+            Finds duplicates. Yields generator of
+            tuple[file name str, row index int]
+            :param value: int, float, or str
+            :param column_name: int, float, or str
+            :return: Generator[tuple[str, int]]
+            """
+            for log_file in self.log_files.values():
+                for index in log_file.find_duplicates(value, column_name):
+                    yield log_file.name, index
+
+        def add_file(self, sheet: 'Sheet'):
+            """
+            Creates a RowLogFile in this group.
+            :param sheet: Sheet
+            :return: None
+            """
+            log = RowLog.RowLogFile(self.path, sheet)
+            self.log_files[log.name] = log
+
+        @property
+        def name(self):
+            if self.path.endswith('/'):
+                path = self.path[:-1]
+            else:
+                path = self.path
+            return os.path.basename(path)
 
     class RowLogFile:
         """
         Class operating on a single log
         """
+        prefix_dict = {
+            int: 'int:',
+            float: 'flt:',
+            str: 'str:',
+        }
+
+        type_dict = {v: k for k, v in prefix_dict.items()}  # inverted prefix d
+
+        none_str = 'None'
+
         def __init__(self, path: str, sheet: 'Sheet'=None) -> None:
             """
             Creates a new RowLogFile at/from passed path.
             If a sheet is passed to constructor,
             creates a new log at path. If no sheet is passed,
             attempts to read a log from file at path.
+            When creating a new log file, if passed path str is a dir,
+            new file is created within that dir. If path is not a dir,
+            creates a file with that name.
             :param path: str
             :param sheet: sheet
             """
-            self.path = path
-            self.columns = {}  # dictionary of column value sets
+            if os.path.isdir(path):
+                # if passed path is a dir, create a path for self within it
+                assert sheet is not None  # sheet is needed for name generation
+                self.path = os.path.join(path, self._generate_name())
+            else:  # if passed path is a file/doesn't exist,
+                # that will be used as the path for this log file.
+                self.path = path
+            self._rows = None  # list of rows read from this file.
+            self._col_values = {}  # dictionary of column value sets
             if sheet:
                 self.write(sheet)
             else:
@@ -4409,7 +4535,9 @@ class RowLog:
 
         def write(self, sheet: 'Sheet'):
             """
-            Writes sheet info to file
+            Writes sheet info to file.
+            If path is a dir, writes to a file within that dir,
+            otherwise, creates/writes to a file located at path.
             :param sheet: Sheet
             :return: None
             """
@@ -4418,16 +4546,144 @@ class RowLog:
                     f, sheet.columns.names,  # generator
                     restval=None,
                     extrasaction='raise')  # raise ValueError on unexpected key
-                for i in range(sheet.)
+                writer.writerows([self._format_dict(row.to_dict()) for
+                                  row in sheet.table_rows])
 
-
-
-        def read(self, path: str=None):
+        def read(self, path: str=None) -> list:
             """
             Reads columns in from file.
             :param path: str path to file to red
-            :return: None
+            :return: list[dict]
             """
+            path = path if path else self.path
+            with open(path, 'r') as f:
+                reader = csv.DictReader(f)
+                # parse each row in reader from str to original types & return.
+                return [self._parse_dict(row) for row in reader]
+
+        def find_duplicates(
+                self,
+                value: int or float or str,
+                column_name: int or float or str
+                ):
+            """
+            Yields duplicates in this row file
+            :param value: int, float, or str
+            :param column_name: int, float or str
+            :return: Generator[str, int]
+            """
+            try:
+                for row_index in self.column_values(column_name)[value]:
+                    yield row_index
+            except KeyError:
+                return
+
+        @classmethod
+        def _format_dict(cls, d: dict) -> dict:
+            """
+            Returns a new dictionary that is a formatted version of
+            passed dict.
+            :param d: dict
+            :return: new dict
+            """
+            assert isinstance(d, dict)
+            new_d = {}
+            for k, v in d.items():
+                new_d[k] = cls._format_val(v)
+            return new_d
+
+        @staticmethod
+        def _format_val(v: int or float or str or None):
+            """
+            Formats value to be stored in csv file
+            :param v: int, float, str, or None
+            :return: str
+            """
+            if v is None:
+                return RowLog.RowLogFile.none_str
+            else:
+                return RowLog.RowLogFile.prefix_dict[v.__class__] + str(v)
+
+        @classmethod
+        def _parse_dict(cls, d: dict) -> dict:
+            """
+            Parses dictionary and returns a new dictionary with
+            those values.
+            :param d: dict
+            :return: new dict
+            """
+            assert isinstance(d, dict)
+            new_d = {}
+            for k, v in d.items():
+                new_d[k] = cls._parse_val(v)
+            return new_d
+
+        @staticmethod
+        def _parse_val(s: str) -> str or int or float or None:
+            """
+            Parses str for value stored by format_val method
+            :param s:
+            :return: str, int, float, or None
+            """
+            if not isinstance(s, str):
+                raise ValueError('Expected str, got %s' % repr(s))
+            prefix = s[:3]
+            if prefix == RowLog.RowLogFile.none_str:
+                return None
+            else:
+                # try to convert string value to value
+                return RowLog.RowLogFile.type_dict[prefix](s)
+
+        def column_values(self, col_name: int or float or str or None) -> dict:
+            """
+            Returns dict for a passed column name.
+            :param col_name: int, float, str, or None
+            :return: set
+            """
+            # col_values dict is lazily populated
+            try:  # try to get {value: row indices} dict from col_values dict.
+                d = self._col_values[col_name]
+            except KeyError:  # if col_name key has not been entered, do that.
+                d = self._col_values[col_name] = {}
+                for row_i, row in enumerate(self.rows):  # for each row:
+                    # get relevant value for col.
+                    # this is accessed here to prevent a possible key error
+                    # from silently breaking and being caught below.
+                    v = row[col_name]
+                    try:  # try to add row index to set of indices with value
+                        d[v].add(row_i)
+                    except KeyError:  # if key does not exist, create entry
+                        d[v] = {row_i}
+            return d
+
+        @property
+        def rows(self):
+            """
+            Gets rows from file.
+            :return: list[dict]
+            """
+            if not self._rows:
+                self._rows = self.read()  # read file at path
+            return self._rows
+
+        def _generate_name(self) -> str:
+            return datetime.datetime.now().isoformat()
+
+        @property
+        def name(self) -> str:
+            return os.path.basename(self.path)
+
+        def __repr__(self) -> str:
+            return 'RowLogFile[%s]' % self.path
+
+        def display_name(self) -> str:
+            """
+            Gets user-friendly string to be used in gui.
+            At this time, returns base name of log path without extension
+            :return: str
+            """
+            return 'Log from: %s' % \
+                   os.path.splitext(os.path.basename(self.path))[0]
 
 
 class Color:
