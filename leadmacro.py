@@ -80,6 +80,7 @@ except ImportError:
 
 APP_FOLDER_NAME = 'leadsmacro'
 SAVED_TRANSLATIONS_FOLDER_NAME = 'saved_translations'
+LOG_DIR_NAME = 'logs'
 SERIALIZED_OBJ_SUFFIX = '.pkl'
 
 MAX_CELL_GAP = 10  # max distance between inhabited cells in the workbook
@@ -128,6 +129,11 @@ SOURCE_COLUMN_INDEX_KEY = 'source_column_i'
 TARGET_COLUMN_INDEX_KEY = 'target_column_i'
 WHITESPACE_CHK_KEY = 'check_for_whitespace'
 DUPLICATE_CHK_KEY = 'check_for_duplicates'
+
+#Row dlg settings
+LOG_WRITE_KEY = 'log_write'
+LOG_READ_KEY = 'log_read'
+LOG_GROUP_KEY = 'log_group'
 
 WHITESPACE_REMOVE_STR = 'Remove Whitespace'
 WHITESPACE_HIGHLIGHT_STR = 'Highlight'
@@ -216,14 +222,7 @@ class WorkBookComponent:
     Abstract class with common methods for classes that exist within
     a workbook.
     """
-    def sheet(self) -> 'Sheet':
-        """
-        Returns reference to sheet to which this WorkBookComponent
-        belongs. If this component is a sheet,
-        returns reference to self.
-        :return: Sheet
-        """
-        raise NotImplementedError
+    sheet = None
 
     @property
     def parents(self):
@@ -409,8 +408,8 @@ class Sheet(WorkBookComponent):
         the passed value.
         :return: Office.Column
         """
-        x = self.get_column_index_from_name(column_name)
-        return self.get_column_by_index(x) if x is not None else None
+        i = self.get_column_index_from_name(column_name)
+        return self.get_column_by_index(i) if i is not None else None
 
     def get_column_index_from_name(
         self,
@@ -1045,7 +1044,7 @@ class Line(WorkBookComponent):
 
 class Column(Line):
     """
-    Abstract Column class, extended by Office.XW.Column and Office.XW.Row
+    Abstract Column class, extended by Office.XW.Column and Office.Uno.Column
     """
     _all = {}  # dict storing all unique sheet+index possibilities
 
@@ -1603,6 +1602,9 @@ class Office:
                 )
 
         class Line(Line):
+            """
+            XW Line
+            """
             pass  # no methods defined here at this time.
             # keeping for MR0 purposes
 
@@ -1796,7 +1798,7 @@ class Office:
 
         class Sheet(Sheet):
             """
-            Handles usage of a workbook sheet
+            Handles usage of a single Uno workbook sheet
             """
 
             def __init__(
@@ -2048,6 +2050,9 @@ class Translation:
             target_start_row=1,
             whitespace_action=WHITESPACE_HIGHLIGHT_STR,
             duplicate_action=DUPLICATE_HIGHLIGHT_STR,
+            read_log: bool=False,
+            write_log: bool=False,
+            log_group: str=None,
     ):
 
         if not isinstance(source_sheet, Sheet):
@@ -2066,6 +2071,11 @@ class Translation:
         self._target_start_row = target_start_row
         self._whitespace_action = whitespace_action
         self._duplicate_action = duplicate_action
+        self.read_log = read_log
+        self.write_log = write_log
+        self.log_group = log_group
+        self.row_log = RowLog(OS.get_log_dir_path()) if \
+            read_log or write_log else None
         # create column translations from passed list of dicts
         # in settings
         self._column_translations = []
@@ -2075,18 +2085,18 @@ class Translation:
         self.cell_translation_generators = []  # x_index: generator
         self.cell_translations = {}  # src_pos: CellTranslation
 
-        self.get_cell_generators()
-        self.generate_cell_translations()
+        self._get_cell_generators()
+        self._generate_cell_translations()
 
         if self.duplicate_action == DUPLICATE_HIGHLIGHT_STR:
-            self.highlight_translation_rows_with_duplicates()
+            self._highlight_translation_rows_with_duplicates()
         elif self.duplicate_action == DUPLICATE_REMOVE_ROW_STR:
-            self.remove_translation_rows_with_duplicates()
+            self._remove_translation_rows_with_duplicates()
 
         if self.whitespace_action == WHITESPACE_HIGHLIGHT_STR:
-            self.highlight_translation_rows_with_whitespace()
+            self._highlight_translation_rows_with_whitespace()
         elif self.whitespace_action == WHITESPACE_REMOVE_STR:
-            self.remove_whitespace_in_translation_rows()
+            self._remove_whitespace_in_translation_rows()
 
     def commit(self):
         try:
@@ -2094,24 +2104,26 @@ class Translation:
             self.source_sheet.screen_updating = False
             self.target_sheet.screen_updating = False
             self.clear_target()
-            self.apply_translation_rows()
+            self._apply_translation_rows()
+            if self.write_log:  # write log if that setting is set by user.
+                self.row_log.make_log(self.log_group, self.target_sheet)
         finally:
             self.source_sheet.screen_updating = True
             self.target_sheet.screen_updating = True
 
-    def apply_translation_rows(self):
+    def _apply_translation_rows(self):
         for y in self.translation_rows:
             t_row = self.translation_rows[y]
             assert isinstance(t_row, TranslationRow)
             t_row.apply(self.target_sheet, y)
 
-    def get_cell_generators(self):
+    def _get_cell_generators(self):
         for column_translation in self.column_translations:
             assert isinstance(column_translation, ColumnTranslation)
             self.cell_translation_generators.append(
                 column_translation.get_generator())
 
-    def generate_cell_translations(self):
+    def _generate_cell_translations(self):
         print('mapping row translations')
         y = self._source_start_row
         while any([generator.has_next() for generator in
@@ -2129,7 +2141,7 @@ class Translation:
             y += 1
         print('done mapping row translations')
 
-    def highlight_translation_rows_with_whitespace(self):
+    def _highlight_translation_rows_with_whitespace(self):
         whitespace_positions = list(self.get_whitespace_positions())
         assert isinstance(whitespace_positions, list)
         for item in whitespace_positions:
@@ -2150,7 +2162,7 @@ class Translation:
             )
         self._whitespace_feedback(whitespace_positions)
 
-    def remove_whitespace_in_translation_rows(self):
+    def _remove_whitespace_in_translation_rows(self):
         whitespace_positions = list(self.get_whitespace_positions())
         for pos in whitespace_positions:
             try:
@@ -2161,7 +2173,7 @@ class Translation:
                 continue
         self._whitespace_feedback(whitespace_positions)
 
-    def highlight_translation_rows_with_duplicates(self):
+    def _highlight_translation_rows_with_duplicates(self):
         duplicate_positions = list(self.get_duplicate_positions())
         for pos in duplicate_positions:
             try:
@@ -2178,7 +2190,7 @@ class Translation:
             )
         self._duplicates_feedback(duplicate_positions)
 
-    def remove_translation_rows_with_duplicates(self):
+    def _remove_translation_rows_with_duplicates(self):
         duplicate_positions = list(self.get_duplicate_positions())
         for pos in duplicate_positions:
             try:
@@ -2222,7 +2234,7 @@ class Translation:
                 yield cell.position
         print('done looking for whitespace')
 
-    def confirm_overwrite(self):
+    def _confirm_overwrite(self):
         reply = QtW.QMessageBox.question(
             self._dialog_parent,
             'Overwrite Cells?',
@@ -2307,9 +2319,9 @@ class Translation:
                     continue
                 if not user_ok and cell.value != '':
                     # if user has not yet ok'd deletion of cells:
-                    if self.confirm_overwrite:
+                    if self._confirm_overwrite:
                         print('confirm dlg')
-                        proceed = self.confirm_overwrite()
+                        proceed = self._confirm_overwrite()
                         if not proceed:
                             return False
                     user_ok = True
@@ -2771,7 +2783,7 @@ class ColumnTranslation:
     def get_duplicate_source_cells(self):
         """
         Yields cells in source column with values that are duplicates of
-        previously occuring values
+        previously occurring values
         :return: iterator of cells
         """
         assert self._parent_translation is not None, \
@@ -2779,9 +2791,16 @@ class ColumnTranslation:
         values = set()
         for cell in self.source_column:
             value = cell.value_without_whitespace
+            # if cell's value is in set of existing values, return cell.
             if value in values:
                 yield cell
-            values.add(value)
+            else:  # otherwise, check if cell is in log
+                parent = self._parent_translation
+                if parent.read_log:  # if option is set
+                    parent.row_log.find_duplicates(
+                        value, parent.log_group, self.target_column_name
+                    )
+                values.add(value)  # add value to set of existing values
 
 
 class CellGenerator:
@@ -2947,14 +2966,6 @@ class TranslationDialog(PyLeadDlg):
         self.target_start_row = target_start
         self.setWindowTitle(APP_WINDOW_TITLE)
 
-        def ok():
-            """Function to confirm selections and create Translation"""
-            self.accept()
-
-        def back():
-            """Function to resume prior dialog and close self"""
-            self.reject()
-
         self.table = self.TranslationTable(
             source_sheet=self.source_sheet,
             target_sheet=self.target_sheet,
@@ -2975,8 +2986,8 @@ class TranslationDialog(PyLeadDlg):
         save_and_load_bar.addWidget(load_button)
         main_layout.addItem(save_and_load_bar)
         confirm_bar = QtW.QHBoxLayout()
-        confirm_bar.addWidget(BackButton(back))
-        confirm_bar.addWidget(OkButton(ok))
+        confirm_bar.addWidget(BackButton(self.reject))
+        confirm_bar.addWidget(OkButton(self.accept))
         main_layout.addItem(confirm_bar)
         self.setLayout(main_layout)
         self.setMinimumWidth(DEFAULT_WIDGET_W)
@@ -3551,7 +3562,6 @@ class PreliminarySettings(PyLeadDlg):
         for x, field_class in enumerate(field_classes):
             dict_str = field_class.dict_string
             start_str = ''
-            # in the future
             additional_default_values = [values[dict_str]] if \
                 dict_str in values else []
 
@@ -3658,6 +3668,186 @@ class PreliminarySettings(PyLeadDlg):
         return {field.dict_string: field.value for field in self.fields}
 
 
+class LogDlg(PyLeadDlg):
+    """
+    Dialog in which user inputs settings for what logs to check against
+    for duplicates, what group to add logs to, and in which the user
+    can add or remove log files
+    """
+
+    def __init__(self, settings: dict) -> None:
+        super().__init__(settings)
+        self.row_log = RowLog(OS.get_log_dir_path())
+        # create group selector
+        self.group_selector = QtW.QComboBox()
+        self.group_selector.addItems(self.row_log.group_names)
+        self.group_selector.setToolTip('Select log group to check')
+        self.group_selector.setCurrentText(settings.get(LOG_GROUP_KEY, ''))
+        # create checkbox for selecting whether or not log is checked
+        # for duplicates.
+        self.read_log_checkbox = QtW.QCheckBox()
+        self.read_log_checkbox.setChecked(settings.get(LOG_READ_KEY, False))
+        self.read_log_checkbox.setText('check for duplicates')
+        self.read_log_checkbox.setToolTip(
+            'Look for duplicates in log of previously moved values')
+        # set whether log_group_selector is greyed depending on
+        # checkbox val.
+        # noinspection PyUnresolvedReferences
+        self.read_log_checkbox.stateChanged.connect(self.log_checkbox_event)
+        # create checkbox for selecting whether or not log should be
+        # written to.
+        self.write_log_checkbox = QtW.QCheckBox()
+        self.write_log_checkbox.setChecked(settings.get(LOG_WRITE_KEY, False))
+        self.write_log_checkbox.setText('write to log')
+        self.write_log_checkbox.setToolTip(
+            'Write moved values into a log to be checked later for duplicates'
+        )
+        # noinspection PyUnresolvedReferences
+        self.write_log_checkbox.stateChanged.connect(self.log_checkbox_event)
+        self.log_checkbox_event()  # set group selector + list enabled/disabled
+        # create list of log files which displays currently selected
+        # files in group.
+        self.log_file_list = self.LogFileList(self.row_log)
+        # button for adding a new group to row log
+        self.add_group_btn = QtW.QPushButton()
+        self.add_group_btn.setText('Add Group')
+        self.add_group_btn.setToolTip('Add new group of log files')
+        # noinspection PyUnresolvedReferences
+        self.add_group_btn.clicked.connect(self.add_group)
+        # button for removing a group from row log
+        self.delete_group_btn = QtW.QPushButton()
+        self.delete_group_btn.setText('Delete Group')
+        self.delete_group_btn.setToolTip('Delete group of log files')
+        # noinspection PyUnresolvedReferences
+        self.delete_group_btn.clicked.connect(self.delete_group)
+        self.back_button = BackButton(self.reject)
+        self.accept_button = QtW.QPushButton()
+        self.accept_button.setText('Next')
+        self.accept_button.setToolTip('Go to next dialog')
+        # noinspection PyUnresolvedReferences
+        self.accept_button.clicked.connect(self.accept)
+        # create line with accept / back buttons.
+        button_line = QtW.QHBoxLayout()
+        button_line.addWidget(self.back_button)
+        button_line.addWidget(self.accept_button)
+        layout = QtW.QVBoxLayout()
+        layout.addWidget(self.read_log_checkbox)
+        layout.addWidget(self.write_log_checkbox)
+        layout.addWidget(self.group_selector)
+        layout.addWidget(self.log_file_list)
+        self.setLayout(layout)
+
+    def log_checkbox_event(self):
+        """
+        method called on change to write_log or read_log checkboxes.
+        :return: None
+        """
+        enabled = self.write_log_checkbox.isChecked() and \
+            self.read_log_checkbox.isChecked()
+        self.group_selector.setEnabled(enabled)
+        self.log_file_list.setEnabled(enabled)
+
+    class LogFileList(QtW.QListWidget):
+        def __init__(self, row_log: 'RowLog') -> None:
+            super().__init__()
+            self.row_log = row_log
+            self._group_name = None
+
+        @property
+        def group_name(self) -> str:
+            return self._group_name
+
+        @group_name.setter
+        def group_name(self, group_name: str) -> None:
+            if group_name != self._group_name:
+                self._group_name = group_name
+                self.clear()
+                self.addItems([f for f in self.row_log.file_names(group_name)])
+
+    def add_group(self):
+        """
+        Method called when user clicks new group button
+        :return: None
+        """
+        # get name of group from user
+        # noinspection PyTypeChecker,PyCallByClass,PyArgumentList
+        name, ok = QtW.QInputDialog.getText(
+            self,  # parent
+            'New Log Group',  # Title
+            'Enter name of new log group'  # content prompt
+        )
+        # create group
+        if not ok:
+            return
+        try:
+            self.row_log.new_group(name)
+        except OSError:
+            # if group cannot be created, display message
+            failure_dlg = QtW.QMessageBox()
+            failure_dlg.setIcon(QtW.QMessageBox.Warning)
+            failure_dlg.setWindowTitle('Failed to Create Group')
+            failure_dlg.setText(
+                'Could not create group %s because a directory of that '
+                'name could not be created. Check permissions for the'
+                '%s directory' % (name, self.row_log.path)
+            )
+
+    def delete_group(self):
+        """
+        Remove group and files contained.
+        :return: None
+        """
+        # have user select group to be removed
+        # noinspection PyTypeChecker,PyCallByClass,PyArgumentList
+        name, ok = QtW.QInputDialog.getItem(
+            self,  # parent
+            'Delete Log Group',  # title
+            'Select group to be deleted',  # text
+            [f for f in self.row_log.group_names],  # selectable items
+            0,  # starting index
+        )
+        # delete group
+        if not ok:
+            return
+        # get confirmation
+        confirm_dlg = QtW.QMessageBox()
+        confirm_dlg.setWindowTitle('Confirm Deletion')
+        confirm_dlg.setText(
+            'Are you sure you wish to delete log group %s' % repr(name)
+        )
+        confirm_dlg.setStandardButtons(
+            QtW.QMessageBox.Cancel |
+            QtW.QMessageBox.Yes
+        )
+        confirmed = confirm_dlg.exec()
+        if not confirmed:
+            return
+        try:
+            self.row_log.delete_group(name)
+        except OSError:
+            # if group cannot be created, display message
+            failure_dlg = QtW.QMessageBox()
+            failure_dlg.setIcon(QtW.QMessageBox.Warning)
+            failure_dlg.setWindowTitle('Failed to Delete Group')
+            failure_dlg.setText(
+                'Could not delete group %s because the directory %s or a file'
+                'within it could not be deleted'
+                % (repr(name), repr(os.path.join(self.row_log.path, name)))
+            )
+
+    @property
+    def settings(self) -> dict:
+        """
+        Gets settings dict
+        :return: dict
+        """
+        return {
+            LOG_WRITE_KEY: self.write_log_checkbox.isChecked(),
+            LOG_READ_KEY: self.read_log_checkbox.isChecked(),
+            LOG_GROUP_KEY: self.group_selector.currentText(),
+        }
+
+
 class FinalSettings(PyLeadDlg):
     def __init__(self, settings: dict):
         assert isinstance(settings, dict), \
@@ -3696,7 +3886,7 @@ class FinalSettings(PyLeadDlg):
             # noinspection PyUnresolvedReferences
             self.clicked.connect(apply)  # not an error
             self.setText('Apply')
-            self.setToolTip('Apply selections & Move cells from source sheet '
+            self.setToolTip('Apply selections & move cells from source sheet '
                             'to target')
 
     class MenuOption(QtW.QComboBox):
@@ -3814,7 +4004,6 @@ class SaveTranslationsDlg(FileDlg):
         grid.add_row(self.file_name_entry_field)
         grid.add_row(self.accept_button, self.cancel_button)
         self.setLayout(grid)
-        # self.exec()
 
     def save(self):
         """
@@ -3866,7 +4055,6 @@ class LoadTranslationsDlg(FileDlg):
         grid.add_row(self.file_selection_field, self.delete_button)
         grid.add_row(self.cancel_button, self.accept_button)
         self.setLayout(grid)
-        # self.exec()
 
     def populate_file_selection_field(self):
         """
@@ -4080,11 +4268,22 @@ class OS:
     def get_translations_save_dir_path() -> str:
         """
         Gets path to folder where translations are saved.
-        :return:
+        :return: str
         """
         return os.path.join(
             OS.get_app_data_path(),
             SAVED_TRANSLATIONS_FOLDER_NAME
+        )
+
+    @staticmethod
+    def get_log_dir_path() -> str:
+        """
+        Gets path to dir where logs are stored.
+        :return: str
+        """
+        return os.path.join(
+            OS.get_app_data_path(),
+            LOG_DIR_NAME
         )
 
     @staticmethod
@@ -4098,10 +4297,15 @@ class OS:
         """
         if not os.path.exists(file_path):
             print('path %s does not exist, creating it' % file_path)
+            # get higher level path, check if that exists
+            higher_dir = os.path.join(*os.path.split(file_path)[:-1])
+            if not os.path.exists(higher_dir):
+                OS.ensure_dir_exists(higher_dir)
             try:
                 os.mkdir(file_path)
-            except OSError:
+            except OSError as e:
                 print(sys.exc_info())
+                print(e.strerror)
                 return False
         return True
 
@@ -4379,10 +4583,19 @@ class RowLog:
     log_file_ext = '.csv'
 
     def __init__(self, path: str):
-        if not os.path.exists(path):
-            pass  # todo: try to make path
+        OS.ensure_dir_exists(path)
+        assert os.path.exists(path)
         self.path = path
         self._groups = self._find_groups()
+
+    def file_names(self, group_name):
+        """
+        Gets file names in the group identified by passed group name.
+        :param group_name: str
+        :return: Generator[str]
+        """
+        for file_name in self._groups[group_name].file_names:
+            yield file_name
 
     def _find_groups(self):
         """
@@ -4415,10 +4628,21 @@ class RowLog:
     def new_group(self, name: str) -> None:
         """
         Creates a new group with passed name
-        :param name:
-        :return:
+        :param name: str
+        :return: None
         """
         self._groups[name] = RowLog.Group(os.path.join(self.path, name))
+
+    def delete_group(self, name: str) -> None:
+        """
+        Deletes group and contained files
+        :param name: str
+        :return: None
+        """
+        group = self._groups[name]
+        [os.remove(os.path.join(group.path, f)) for f in group.file_names]
+        os.rmdir(group.path)
+        del self._groups[name]
 
     def make_log(self, group_name: str, sheet: 'Sheet'):
         """
@@ -4492,6 +4716,15 @@ class RowLog:
             else:
                 path = self.path
             return os.path.basename(path)
+
+        @property
+        def file_names(self):
+            """
+            Gets generator of log files in this group
+            :return: Generator[str]
+            """
+            for log_name in self.log_files:
+                yield log_name
 
     class RowLogFile:
         """
@@ -4758,6 +4991,7 @@ def lead_app():
     dialog_classes = [
         PreliminarySettings,
         TranslationDialog,
+        LogDlg,
         FinalSettings
     ]
     while run:
@@ -4779,7 +5013,7 @@ def lead_app():
     if run:  # if run is still ongoing
         src_sheet = model[settings[SOURCE_SHEET_KEY]]
         tgt_sheet = model[settings[TARGET_SHEET_KEY]]
-        src_sheet.exclusive_editor = True  # nothing should concurrently edit
+        src_sheet.exclusive_editor = True  # nothing should concurrently edit;
         tgt_sheet.exclusive_editor = True  # this allows caching to occur
         translation = Translation(  # create translation
             source_sheet=src_sheet,
@@ -4790,7 +5024,10 @@ def lead_app():
             dialog_parent=dlg,  # there's no way for this to be reached
             #  without dlg being assigned.
             duplicate_action=settings[DUPLICATE_ACTION_KEY],
-            whitespace_action=settings[WHITESPACE_ACTION_KEY]
+            whitespace_action=settings[WHITESPACE_ACTION_KEY],
+            read_log=settings[LOG_READ_KEY],
+            write_log=settings[LOG_WRITE_KEY],
+            log_group=settings[LOG_GROUP_KEY],
         )
         translation.commit()  # move cell values
 
