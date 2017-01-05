@@ -107,4 +107,4 @@ if __name__ == '__main__':
     if xw is None:
         assert False, "XW was unable to be imported"
 
-    test_translation_speed_is_improved('st_src_short')
+    test_translation_speed_is_improved()

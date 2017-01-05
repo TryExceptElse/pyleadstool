@@ -253,36 +253,23 @@ class WorkBookComponent:
         :param getter: callable
         :return: callable
         """
-
-    class ValueCache:
-        """
-        Class to be used by value_cache decorator
-        """
-
-        def __init__(self, getter) -> None:
-            self._getter = getter
-
-        def __call__(self, *args, **kwargs):
-            """
-            Method to return value
-            :return: Any
-            """
-            o = args[0]  # get 'self' arg for method being called
+        def wrapper(self, *args, **kwargs):
             # if caching is not possible, just call getter
             # to do this, find sheet and check if exclusive_editor is True
-            if not o.sheet.exclusive_editor:
-                return self._getter(*args, **kwargs)
+            if not self.sheet.exclusive_editor:
+                return getter(*args, **kwargs)
             # get cache
             try:
-                cache = o.__value_cache
+                cache = self.__value_cache
             except AttributeError:
-                cache = o.__value_cache = {}
+                cache = self.__value_cache = {}
             # if caching is possible, but nothing is in cache, set it
             try:
-                value = cache[self]  # try to return cached value
+                value = cache[getter]  # try to return cached value
             except KeyError:
-                value = cache[self] = self._getter(*args, **kwargs)
+                value = cache[getter] = getter(self, *args, **kwargs)
             return value
+        return wrapper
 
     @staticmethod
     def clear_cache(setter):
@@ -757,9 +744,9 @@ class LineSeries:
             ref_cells = self.reference_line[self.start_index:]
         for cell in ref_cells:
             if self._contents_type == LineSeries.COLUMNS_STR:
-                return cell.column
+                yield cell.column
             if self._contents_type == LineSeries.ROWS_STR:
-                return cell.rows
+                yield cell.rows
 
     def __len__(self) -> int:
         """
@@ -937,7 +924,19 @@ class Line(WorkBookComponent):
         :param s: slice
         :return: Generator[Cell]
         """
-        for i in range(s.start, s.stop, s.step):
+        if s.start is None:
+            start = 0
+        else:
+            start = s.start
+        if s.stop is None:
+            stop = len(self)
+        else:
+            stop = s.stop
+        if s.step is not None:
+            rng = range(start, stop, s.step)
+        else:
+            rng = range(start, stop)
+        for i in rng:
             if i in range(len(self)):
                 yield self[i]
 
