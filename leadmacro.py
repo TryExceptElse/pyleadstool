@@ -71,7 +71,10 @@ import csv  # used for saving logs
 import platform
 import sys
 
-import PyQt5.QtWidgets as QtW
+from PyQt5.QtWidgets import QMessageBox, QVBoxLayout, QHBoxLayout, \
+    QInputDialog, QCheckBox, QComboBox, QPushButton, QGridLayout, \
+    QLineEdit, QDialog, QTableWidget, QTableWidgetItem, QListWidget, \
+    QWidget, QLabel, QApplication
 
 try:
     import xlwings as xw
@@ -130,7 +133,7 @@ TARGET_COLUMN_INDEX_KEY = 'target_column_i'
 WHITESPACE_CHK_KEY = 'check_for_whitespace'
 DUPLICATE_CHK_KEY = 'check_for_duplicates'
 
-#Row dlg settings
+# Row dlg settings
 LOG_WRITE_KEY = 'log_write'
 LOG_READ_KEY = 'log_read'
 LOG_GROUP_KEY = 'log_group'
@@ -2235,15 +2238,15 @@ class Translation:
         print('done looking for whitespace')
 
     def _confirm_overwrite(self):
-        reply = QtW.QMessageBox.question(
+        reply = QMessageBox.question(
             self._dialog_parent,
             'Overwrite Cells?',
             'Cells on the target sheet will be overwritten.\n'
             'Proceed?',
-            QtW.QMessageBox.Yes | QtW.QMessageBox.Cancel,
-            QtW.QMessageBox.Cancel
+            QMessageBox.Yes | QMessageBox.Cancel,
+            QMessageBox.Cancel
         )
-        return reply == QtW.QMessageBox.Yes
+        return reply == QMessageBox.Yes
 
     def add_column_translation(self, *args, **kwargs) -> None:
         """
@@ -2899,7 +2902,7 @@ class CellTransform:
 ###############################################################################
 # GUI elements
 
-class PyLeadDlg(QtW.QDialog):
+class PyLeadDlg(QDialog):
     """
     Abstract class inherited from by other dialogs
     """
@@ -2973,26 +2976,26 @@ class TranslationDialog(PyLeadDlg):
         )
 
         # build layouts
-        main_layout = QtW.QVBoxLayout()
+        main_layout = QVBoxLayout()
         main_layout.addWidget(self.table)
-        save_and_load_bar = QtW.QHBoxLayout()
-        save_button = QtW.QPushButton('Save Translations')
+        save_and_load_bar = QHBoxLayout()
+        save_button = QPushButton('Save Translations')
         # noinspection PyUnresolvedReferences
         save_button.clicked.connect(self.save_translations)
         save_and_load_bar.addWidget(save_button)
-        load_button = QtW.QPushButton('Load Translations')
+        load_button = QPushButton('Load Translations')
         # noinspection PyUnresolvedReferences
         load_button.clicked.connect(self.load_saved_translations)
         save_and_load_bar.addWidget(load_button)
         main_layout.addItem(save_and_load_bar)
-        confirm_bar = QtW.QHBoxLayout()
+        confirm_bar = QHBoxLayout()
         confirm_bar.addWidget(BackButton(self.reject))
         confirm_bar.addWidget(OkButton(self.accept))
         main_layout.addItem(confirm_bar)
         self.setLayout(main_layout)
         self.setMinimumWidth(DEFAULT_WIDGET_W)
 
-    class TranslationTable(QtW.QTableWidget):
+    class TranslationTable(QTableWidget):
         def __init__(
                 self,
                 source_sheet: Sheet,
@@ -3026,7 +3029,7 @@ class TranslationDialog(PyLeadDlg):
             print('drawing table')
             self.draw_table()
 
-        class SourceColumnDropDown(QtW.QComboBox):
+        class SourceColumnDropDown(QComboBox):
             name = 'Source Column'
             dict_name = SOURCE_COLUMN_NAME_KEY
             default_value = NONE_STRING
@@ -3063,7 +3066,7 @@ class TranslationDialog(PyLeadDlg):
             def value(self):
                 return self.currentText()
 
-        class WhiteSpaceCheckbox(QtW.QCheckBox):
+        class WhiteSpaceCheckbox(QCheckBox):
             name = 'Check for Whitespace'
             dict_name = WHITESPACE_CHK_KEY
             default_value = True
@@ -3081,7 +3084,7 @@ class TranslationDialog(PyLeadDlg):
             def value(self):
                 return self.isChecked()
 
-        class DuplicateCheckbox(QtW.QCheckBox):
+        class DuplicateCheckbox(QCheckBox):
             name = 'Check for Duplicates'
             dict_name = DUPLICATE_CHK_KEY
             default_value = False
@@ -3106,10 +3109,10 @@ class TranslationDialog(PyLeadDlg):
             self.setColumnCount(len(self.option_widget_classes))
             self.setAlternatingRowColors(True)
             # set row titles
-            [self.setVerticalHeaderItem(y, QtW.QTableWidgetItem(column)) for
+            [self.setVerticalHeaderItem(y, QTableWidgetItem(column)) for
              y, column in enumerate(self.tgt_col_names)]
             # set option column titles
-            [self.setHorizontalHeaderItem(x, QtW.QTableWidgetItem(option.name))
+            [self.setHorizontalHeaderItem(x, QTableWidgetItem(option.name))
              for x, option in enumerate(self.option_widget_classes)]
             self.populate_table(self.presets)
             self.auto_fill()  # attempt to fill in cells left empty by presets
@@ -3148,7 +3151,7 @@ class TranslationDialog(PyLeadDlg):
                 # this returns None if invalid index is passed.
                 if tgt_row_name_item is None:
                     break
-                assert isinstance(tgt_row_name_item, QtW.QTableWidgetItem), \
+                assert isinstance(tgt_row_name_item, QTableWidgetItem), \
                     "Got: %s" % tgt_row_name_item
                 tgt_row_name = tgt_row_name_item.text()
                 drop_down_menu = self.cellWidget(y, x)
@@ -3164,7 +3167,7 @@ class TranslationDialog(PyLeadDlg):
                             filled_tgt_columns.append(tgt_row_name)
                 y += 1
             if filled_tgt_columns:
-                msg = QtW.QMessageBox()
+                msg = QMessageBox()
                 msg.setDetailedText(
                     "The following target columns have been autofilled:\n%s"
                     % '\n'.join(filled_tgt_columns)
@@ -3321,11 +3324,11 @@ class TranslationDialog(PyLeadDlg):
 
 
 class PreliminarySettings(PyLeadDlg):
-    class SettingField(QtW.QComboBox):
+    class SettingField(QComboBox):
         def __init__(self):
             super().__init__()
 
-    class SheetField(SettingField, QtW.QComboBox):
+    class SheetField(SettingField, QComboBox):
         # string appearing next to field in settings table
         side_string = ''  # replaced by child classes
         # name under which to store field str
@@ -3446,7 +3449,7 @@ class PreliminarySettings(PyLeadDlg):
                               sheet_name
                 )
 
-    class StartLineField(QtW.QLineEdit, SettingField):
+    class StartLineField(QLineEdit, SettingField):
         # values to default to, in order of priority
         default_strings = '1',
         # string appearing next to field in settings table
@@ -3527,7 +3530,7 @@ class PreliminarySettings(PyLeadDlg):
                             'sheet')
             self.setPlaceholderText('Export start row')
 
-    class CancelButton(QtW.QPushButton):
+    class CancelButton(QPushButton):
         """Cancels out of macro"""
 
         def __init__(self, cancel_func):
@@ -3679,13 +3682,13 @@ class LogDlg(PyLeadDlg):
         super().__init__(settings)
         self.row_log = RowLog(OS.get_log_dir_path())
         # create group selector
-        self.group_selector = QtW.QComboBox()
+        self.group_selector = QComboBox()
         self.group_selector.addItems(self.row_log.group_names)
         self.group_selector.setToolTip('Select log group to check')
         self.group_selector.setCurrentText(settings.get(LOG_GROUP_KEY, ''))
         # create checkbox for selecting whether or not log is checked
         # for duplicates.
-        self.read_log_checkbox = QtW.QCheckBox()
+        self.read_log_checkbox = QCheckBox()
         self.read_log_checkbox.setChecked(settings.get(LOG_READ_KEY, False))
         self.read_log_checkbox.setText('check for duplicates')
         self.read_log_checkbox.setToolTip(
@@ -3696,7 +3699,7 @@ class LogDlg(PyLeadDlg):
         self.read_log_checkbox.stateChanged.connect(self.log_checkbox_event)
         # create checkbox for selecting whether or not log should be
         # written to.
-        self.write_log_checkbox = QtW.QCheckBox()
+        self.write_log_checkbox = QCheckBox()
         self.write_log_checkbox.setChecked(settings.get(LOG_WRITE_KEY, False))
         self.write_log_checkbox.setText('write to log')
         self.write_log_checkbox.setToolTip(
@@ -3709,28 +3712,28 @@ class LogDlg(PyLeadDlg):
         # files in group.
         self.log_file_list = self.LogFileList(self.row_log)
         # button for adding a new group to row log
-        self.add_group_btn = QtW.QPushButton()
+        self.add_group_btn = QPushButton()
         self.add_group_btn.setText('Add Group')
         self.add_group_btn.setToolTip('Add new group of log files')
         # noinspection PyUnresolvedReferences
         self.add_group_btn.clicked.connect(self.add_group)
         # button for removing a group from row log
-        self.delete_group_btn = QtW.QPushButton()
+        self.delete_group_btn = QPushButton()
         self.delete_group_btn.setText('Delete Group')
         self.delete_group_btn.setToolTip('Delete group of log files')
         # noinspection PyUnresolvedReferences
         self.delete_group_btn.clicked.connect(self.delete_group)
         self.back_button = BackButton(self.reject)
-        self.accept_button = QtW.QPushButton()
+        self.accept_button = QPushButton()
         self.accept_button.setText('Next')
         self.accept_button.setToolTip('Go to next dialog')
         # noinspection PyUnresolvedReferences
         self.accept_button.clicked.connect(self.accept)
         # create line with accept / back buttons.
-        button_line = QtW.QHBoxLayout()
+        button_line = QHBoxLayout()
         button_line.addWidget(self.back_button)
         button_line.addWidget(self.accept_button)
-        layout = QtW.QVBoxLayout()
+        layout = QVBoxLayout()
         layout.addWidget(self.read_log_checkbox)
         layout.addWidget(self.write_log_checkbox)
         layout.addWidget(self.group_selector)
@@ -3747,7 +3750,7 @@ class LogDlg(PyLeadDlg):
         self.group_selector.setEnabled(enabled)
         self.log_file_list.setEnabled(enabled)
 
-    class LogFileList(QtW.QListWidget):
+    class LogFileList(QListWidget):
         def __init__(self, row_log: 'RowLog') -> None:
             super().__init__()
             self.row_log = row_log
@@ -3771,7 +3774,7 @@ class LogDlg(PyLeadDlg):
         """
         # get name of group from user
         # noinspection PyTypeChecker,PyCallByClass,PyArgumentList
-        name, ok = QtW.QInputDialog.getText(
+        name, ok = QInputDialog.getText(
             self,  # parent
             'New Log Group',  # Title
             'Enter name of new log group'  # content prompt
@@ -3783,8 +3786,8 @@ class LogDlg(PyLeadDlg):
             self.row_log.new_group(name)
         except OSError:
             # if group cannot be created, display message
-            failure_dlg = QtW.QMessageBox()
-            failure_dlg.setIcon(QtW.QMessageBox.Warning)
+            failure_dlg = QMessageBox()
+            failure_dlg.setIcon(QMessageBox.Warning)
             failure_dlg.setWindowTitle('Failed to Create Group')
             failure_dlg.setText(
                 'Could not create group %s because a directory of that '
@@ -3799,7 +3802,7 @@ class LogDlg(PyLeadDlg):
         """
         # have user select group to be removed
         # noinspection PyTypeChecker,PyCallByClass,PyArgumentList
-        name, ok = QtW.QInputDialog.getItem(
+        name, ok = QInputDialog.getItem(
             self,  # parent
             'Delete Log Group',  # title
             'Select group to be deleted',  # text
@@ -3810,14 +3813,14 @@ class LogDlg(PyLeadDlg):
         if not ok:
             return
         # get confirmation
-        confirm_dlg = QtW.QMessageBox()
+        confirm_dlg = QMessageBox()
         confirm_dlg.setWindowTitle('Confirm Deletion')
         confirm_dlg.setText(
             'Are you sure you wish to delete log group %s' % repr(name)
         )
         confirm_dlg.setStandardButtons(
-            QtW.QMessageBox.Cancel |
-            QtW.QMessageBox.Yes
+            QMessageBox.Cancel |
+            QMessageBox.Yes
         )
         confirmed = confirm_dlg.exec()
         if not confirmed:
@@ -3826,8 +3829,8 @@ class LogDlg(PyLeadDlg):
             self.row_log.delete_group(name)
         except OSError:
             # if group cannot be created, display message
-            failure_dlg = QtW.QMessageBox()
-            failure_dlg.setIcon(QtW.QMessageBox.Warning)
+            failure_dlg = QMessageBox()
+            failure_dlg.setIcon(QMessageBox.Warning)
             failure_dlg.setWindowTitle('Failed to Delete Group')
             failure_dlg.setText(
                 'Could not delete group %s because the directory %s or a file'
@@ -3874,7 +3877,7 @@ class FinalSettings(PyLeadDlg):
         self.setLayout(layout)
         self.setWindowTitle(APP_WINDOW_TITLE)
 
-    class ApplyButton(QtW.QPushButton):
+    class ApplyButton(QPushButton):
         def __init__(self, host):
             assert isinstance(host, FinalSettings)
             super().__init__()
@@ -3889,7 +3892,7 @@ class FinalSettings(PyLeadDlg):
             self.setToolTip('Apply selections & move cells from source sheet '
                             'to target')
 
-    class MenuOption(QtW.QComboBox):
+    class MenuOption(QComboBox):
         options = tuple()  # overridden by child classes
         default_option = ''
         tool_tip = ''
@@ -3934,7 +3937,7 @@ class FinalSettings(PyLeadDlg):
 # SAVE / LOAD dlg
 
 
-class FileDlg(QtW.QDialog):
+class FileDlg(QDialog):
     """
     Superclass for SaveDlg and LoadDlg.
     In this class, the save folder and its contents are found and
@@ -3942,7 +3945,7 @@ class FileDlg(QtW.QDialog):
     """
     title = 'placeholder, replaced by subclasses'
 
-    def __init__(self, parent: QtW.QWidget, saves_dir: str) -> None:
+    def __init__(self, parent: QWidget, saves_dir: str) -> None:
         super().__init__(parent)
         self.setWindowTitle(self.title)
         self.setModal(True)
@@ -3952,8 +3955,8 @@ class FileDlg(QtW.QDialog):
         if not OS.ensure_dir_exists(saves_dir):
             print('%s could not find path %s and failed to create it.' %
                   (self.__class__.__name__, saves_dir))
-            msg = QtW.QMessageBox(
-                QtW.QMessageBox.Information,  # icon
+            msg = QMessageBox(
+                QMessageBox.Information,  # icon
                 'Could not find saved files',  # title
                 'Could not find or create saved translations directory %s'
                 % saves_dir
@@ -3986,19 +3989,19 @@ class SaveTranslationsDlg(FileDlg):
 
     def __init__(
             self,
-            parent: QtW.QWidget,
+            parent: QWidget,
             saves_dir: str
     ) -> None:
         print('Save dialog initialization began')
         super().__init__(parent, saves_dir)
         grid = ExpandingGridLayout()
-        self.file_name_entry_field = QtW.QLineEdit()
+        self.file_name_entry_field = QLineEdit()
         self.file_name_entry_field.setToolTip(
             'Enter name to save translations as')
-        self.accept_button = QtW.QPushButton('Save')
+        self.accept_button = QPushButton('Save')
         # noinspection PyUnresolvedReferences
         self.accept_button.clicked.connect(self.save)  # not an error
-        self.cancel_button = QtW.QPushButton('Cancel')
+        self.cancel_button = QPushButton('Cancel')
         # noinspection PyUnresolvedReferences
         self.cancel_button.clicked.connect(self.reject)  # not an error
         grid.add_row(self.file_name_entry_field)
@@ -4019,14 +4022,14 @@ class SaveTranslationsDlg(FileDlg):
         self.accept()
 
     def confirm_overwrite(self, file_name):
-        reply = QtW.QMessageBox.question(
+        reply = QMessageBox.question(
             self,
             'Overwrite File?',
             'A file named %s already exists, overwrite it?' % file_name,
-            QtW.QMessageBox.Yes | QtW.QMessageBox.Cancel,
-            QtW.QMessageBox.Cancel
+            QMessageBox.Yes | QMessageBox.Cancel,
+            QMessageBox.Cancel
         )
-        return reply == QtW.QMessageBox.Yes
+        return reply == QMessageBox.Yes
 
 
 class LoadTranslationsDlg(FileDlg):
@@ -4035,17 +4038,17 @@ class LoadTranslationsDlg(FileDlg):
     """
     title = 'Load Saved Movements'
 
-    def __init__(self, parent: QtW.QWidget, saves_dir: str) -> None:
+    def __init__(self, parent: QWidget, saves_dir: str) -> None:
         print('Load Translations Dialog initialization began')
         super().__init__(parent, saves_dir)
         grid = ExpandingGridLayout()
-        self.file_selection_field = QtW.QComboBox()
+        self.file_selection_field = QComboBox()
         self.populate_file_selection_field()
         self.file_selection_field.setToolTip('Select save to load')
         self.file_selection_field.setCurrentText('Select save')
-        self.delete_button = QtW.QPushButton('Delete Save')
-        self.cancel_button = QtW.QPushButton('Cancel')
-        self.accept_button = QtW.QPushButton('Load')
+        self.delete_button = QPushButton('Delete Save')
+        self.cancel_button = QPushButton('Cancel')
+        self.accept_button = QPushButton('Load')
         # noinspection PyUnresolvedReferences
         self.delete_button.clicked.connect(self.delete)
         # noinspection PyUnresolvedReferences
@@ -4088,8 +4091,8 @@ class LoadTranslationsDlg(FileDlg):
         except IOError:
             print('could not delete file %s' % file_path)
             print(sys.exc_info())
-            msg = QtW.QMessageBox(
-                QtW.QMessageBox.Information,  # icon
+            msg = QMessageBox(
+                QMessageBox.Information,  # icon
                 'Delete Failed',  # title
                 'Could not delete file %s' % file_path,  # body
             )
@@ -4122,8 +4125,8 @@ class LoadTranslationsDlg(FileDlg):
         except IOError:
             print('Could not load from file path: %s' % file_path)
             print(sys.exc_info())
-            msg = QtW.QMessageBox(
-                QtW.QMessageBox.Information,  # icon
+            msg = QMessageBox(
+                QMessageBox.Information,  # icon
                 'Loading Failed',  # title
                 'Could not load column translations from file',  # msg
             )
@@ -4132,7 +4135,7 @@ class LoadTranslationsDlg(FileDlg):
             return []
 
 
-class InfoMessage(QtW.QMessageBox):
+class InfoMessage(QMessageBox):
     """
     Displays simple information dialogue with title, main message,
     and secondary message beneath that.
@@ -4144,18 +4147,18 @@ class InfoMessage(QtW.QMessageBox):
             assert isinstance(item, str), \
                 'expected str, got: %s, (%s)' % (item, item.__class__.__name__)
         super().__init__(parent)
-        self.setIcon(QtW.QMessageBox.Information)
+        self.setIcon(QMessageBox.Information)
         self.setWindowTitle(title)
         self.setText(main)
         if secondary:
             self.setInformativeText(secondary)
-        self.setStandardButtons(QtW.QMessageBox.Ok)
+        self.setStandardButtons(QMessageBox.Ok)
         if detail is not '':
             self.setDetailedText(detail)
         self.exec()
 
 
-class ConfirmDialog(QtW.QMessageBox):
+class ConfirmDialog(QMessageBox):
     """
     Dialog for user to accept or cancel
     """
@@ -4167,11 +4170,11 @@ class ConfirmDialog(QtW.QMessageBox):
         self.setText(main)
         if secondary:
             self.setInformativeText(secondary)
-        self.setStandardButtons(QtW.QMessageBox.Ok | QtW.QMessageBox.Cancel)
-        self.setDefaultButton(QtW.QMessageBox.Ok)
+        self.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
+        self.setDefaultButton(QMessageBox.Ok)
 
 
-class OkButton(QtW.QPushButton):
+class OkButton(QPushButton):
     """ calls passed function when clicked by user."""
 
     def __init__(self, ok_function):
@@ -4182,7 +4185,7 @@ class OkButton(QtW.QPushButton):
         self.show()
 
 
-class BackButton(QtW.QPushButton):
+class BackButton(QPushButton):
     def __init__(self, back_function):
         super().__init__('Back')
         self.setToolTip('Go to last page')
@@ -4191,7 +4194,7 @@ class BackButton(QtW.QPushButton):
         self.show()
 
 
-class ExpandingGridLayout(QtW.QGridLayout):
+class ExpandingGridLayout(QGridLayout):
     """
     Grid layout that can be simply expanded
     """
@@ -4208,7 +4211,7 @@ class ExpandingGridLayout(QtW.QGridLayout):
         for x, item in enumerate(items):
             # convert string to label
             if isinstance(item, str):
-                item = QtW.QLabel(item)
+                item = QLabel(item)
             self.addWidget(item, y, x)
 
 
@@ -4677,6 +4680,11 @@ class RowLog:
             self.log_files = self._find_log_files()
 
         def _find_log_files(self) -> dict:
+            """
+            Returns dict of log files, with file name as key,
+            RowLogFile as value.
+            :return: dict[str:RowLogFile]
+            """
             return {
                 filename:
                     RowLog.RowLogFile(os.path.join(self.path, filename)) for
@@ -4980,7 +4988,7 @@ def lead_app():
     global model
     global app
     model = Office.get_model()
-    app = QtW.QApplication([''])  # expects list of strings.
+    app = QApplication([''])  # expects list of strings.
 
     # get settings
     settings = Settings(OS.get_app_data_path())
