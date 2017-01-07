@@ -11,6 +11,12 @@ from leadmacro import Office, Translation
 from time import time
 from random import shuffle
 
+from cProfile import run
+
+import settings
+
+import os
+
 try:
     import xlwings as xw
 except ImportError:
@@ -107,4 +113,5 @@ if __name__ == '__main__':
     if xw is None:
         assert False, "XW was unable to be imported"
 
-    test_translation_speed_is_improved()
+    out = os.path.join(settings.PROJECT_ROOT, 'out_test', 'test_cgf')
+    run('test_translation_speed_is_improved()', out)
