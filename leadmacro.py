@@ -253,23 +253,53 @@ class WorkBookComponent:
         :param getter: callable
         :return: callable
         """
-        def wrapper(self, *args, **kwargs):
+        def wrapper(o, *args, **kwargs):
             # if caching is not possible, just call getter
             # to do this, find sheet and check if exclusive_editor is True
-            if not self.sheet.exclusive_editor:
+            if not o.sheet.exclusive_editor:
                 return getter(*args, **kwargs)
             # get cache
             try:
-                cache = self.__value_cache
+                cache = o.__value_cache
             except AttributeError:
-                cache = self.__value_cache = {}
+                cache = o.__value_cache = {}
             # if caching is possible, but nothing is in cache, set it
             try:
                 value = cache[getter]  # try to return cached value
             except KeyError:
-                value = cache[getter] = getter(self, *args, **kwargs)
+                value = cache[getter] = getter(o, *args, **kwargs)
             return value
         return wrapper
+
+    @staticmethod
+    def enduring_cache(getter):
+        """
+        Caches results of method in a cache that is not removed
+        when a clear_cache method is called. This is to be used
+        for methods whose results will always remain the same
+        for the object they have been called upon, even if values
+        of that WorkBookObject have changed.
+        This method will also cache results regardless of whether
+        the sheet interface obj is the exclusive editor of its values,
+        since changes made by other means do not affect the returned
+        values of the method being cached.
+        :param getter: callable
+        :return: callable
+        """
+        def enduring_cache_getter(o, *args, **kwargs):
+            # get cache
+            try:
+                cache = o.__enduring_cache
+            except AttributeError:
+                cache = o.__enduring_cache = {}
+            # if caching is possible, but nothing is in cache, set it
+            try:
+                value = cache[getter]  # try to return cached value
+            except KeyError:
+                value = cache[getter] = getter(o, *args, **kwargs)
+            return value
+
+        return enduring_cache_getter
 
     @staticmethod
     def clear_cache(setter):
@@ -281,14 +311,13 @@ class WorkBookComponent:
         :return: callable
         """
 
-        def setter_wrapper(*args, **kwargs) -> None:
+        def setter_wrapper(o, *args, **kwargs) -> None:
             """
             Function wrapping passed setter method.
             first clears cached values,
             then calls original setter method with values.
             :return: None
             """
-            o = args[0]  # get 'self' argument passed to method
             assert isinstance(o, WorkBookComponent)
             # for each WorkBookComponent modified, clear its cache
             modified_components = \
@@ -352,15 +381,6 @@ class Sheet(WorkBookComponent):
                 reference_column_index=ref_col_index,
                 reference_row_index=ref_row_index
             )
-
-    @staticmethod
-    def key(i7e_sheet) -> object:
-        """
-        Gets key unique to edited sheet from interface sheet.
-        :param i7e_sheet: interface sheet
-        :return: object
-        """
-        raise NotImplementedError
 
     def get_column(
             self,
@@ -1576,13 +1596,6 @@ class Office:
                     reference_row_index=reference_row_index
                 )
 
-            @staticmethod
-            def key(i7e_sheet):
-                return 'Sheet[%s::%s]' % (
-                    i7e_sheet.name,
-                    i7e_sheet.book.fullname,
-                )
-
             @property
             def screen_updating(self) -> None:
                 return self.i7e_sheet.book.app.screen_updating
@@ -1591,12 +1604,14 @@ class Office:
             def screen_updating(self, new_bool: bool) -> None:
                 self.i7e_sheet.book.app.screen_updating = new_bool
 
+            @Sheet.enduring_cache
             def __str__(self) -> str:
                 return 'Sheet[%s::%s]' % (
                     self.i7e_sheet.name,
                     self.i7e_sheet.book.name,
                 )
 
+            @Sheet.enduring_cache  # this Sheet's repr should not change
             def __repr__(self) -> str:
                 return 'Sheet[%s::%s]' % (
                     self.i7e_sheet.name,
@@ -1814,10 +1829,6 @@ class Office:
                     reference_row_index=reference_row_index,
                     reference_column_index=reference_column_index
                 )
-
-            @staticmethod
-            def key(i7e_sheet):
-                return i7e_sheet  # todo: get name of sheet
 
         class Line(Line):
             pass  # no methods defined here anymore,
