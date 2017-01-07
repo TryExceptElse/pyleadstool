@@ -113,5 +113,5 @@ if __name__ == '__main__':
     if xw is None:
         assert False, "XW was unable to be imported"
 
-    out = os.path.join(settings.PROJECT_ROOT, 'out_test', 'test_cgf')
+    out = os.path.join(settings.PROJECT_ROOT, 'out_test', 'test_cgf.cprof')
     run('test_translation_speed_is_improved()', out)
