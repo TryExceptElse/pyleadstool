@@ -330,7 +330,7 @@ class WorkBookComponent:
                 else:  # if cell has a cache, clear it.
                     assert isinstance(cache, dict)
                     cache.clear()
-            setter(*args, **kwargs)  # call original value setter method
+            setter(o, *args, **kwargs)  # call original value setter method
 
         return setter_wrapper
 
