@@ -345,6 +345,7 @@ class Sheet(WorkBookComponent):
     _reference_column_index = 0
     _content_row_start = None  # default start index of table_row iter
     _table_col_start = None  # default start index of table_col iter
+    _snapshot = None
     exclusive_editor = False  # true if no concurrent editing will occur
 
     _all_sheets = {}  # all sheets so far instantiated, by repr string
@@ -685,6 +686,51 @@ class Sheet(WorkBookComponent):
             )
         self._content_row_start = new_i
 
+    def take_snapshot(
+            self,
+            width: int=None,
+            height: int=None,
+            frozen_size: bool=False
+    ):
+        """
+        Gets snapshot of sheet as it currently exists, and uses that
+        for all reading and writing of values.
+        The snapshot will by default include all values within the
+        width of the reference row, and within the height of the
+        reference column. Values outside that area may be overridden
+        if the range is expanded.
+        The snapshot can be prevented from growing by setting
+        frozen_size to True.
+        :param width: int
+        :param height: int
+        :param frozen_size: bool
+        :return: None
+        """
+        if height is None:
+            height = len(self.reference_column)
+        if width is None:
+            width = len(self.reference_row)
+        self._snapshot = self.Snapshot(self, width, height, frozen_size)
+
+    def write_snapshot(self):
+        """
+        Writes values in snapshot to memory in one single write
+        (much, much faster than writing each cell individually)
+        :return: None
+        """
+        self._snapshot.write()
+
+    def discard_snapshot(self):
+        """
+        Throws out snapshot along with all changes made to it
+        :return: None
+        """
+        self._snapshot = None
+
+    @property
+    def snapshot(self) -> None or 'Snapshot':
+        return self._snapshot
+
     @property
     def screen_updating(self) -> bool or None:
         """
@@ -719,6 +765,112 @@ class Sheet(WorkBookComponent):
 
     def __repr__(self) -> str:
         raise NotImplementedError
+
+    class Snapshot:
+        """
+        Class storing a sheet entirely in memory, so that individual
+        reads and writes to a sheet can be grouped together.
+        Snapshot is sub-classed within XW and Uno.
+        """
+
+        def __init__(
+                self,
+                sheet: 'Sheet',
+                width: int,
+                height: int,
+                frozen_size: bool
+        ) -> None:
+            self._sheet = sheet
+            self._height = height
+            self._width = width
+            self.frozen_size = frozen_size
+            self._values = self._get_values()
+
+        def _get_values(self) -> list:
+            """
+            Gets list of lists containing values of cells within snapshot
+            :return: list[list[str, float or None]]
+            """
+            raise NotImplementedError
+
+        def _grow(self, new_width: int=None, new_height: int=None) -> None:
+            """
+            Grows snapshot to new passed size.
+            If passed width or height is smaller than the present size,
+            the snapshot will stay the same size, it will not shrink.
+            :param new_width: int
+            :param new_height: int
+            :return: None
+            """
+            if new_height < self._height:
+                new_height = self._height
+            if new_width < self._width:
+                new_width = self._width
+            height_difference = new_height - self._height
+            width_difference = new_width - self._width
+            # first add rows
+            if height_difference:
+                self._values += [[None] * new_width] * height_difference
+            # then columns
+            if width_difference:
+                for i in range(0, self._height):  # for each pre-existing row
+                    self._values[i] += [None] * width_difference
+            self._width = new_width
+            self._height = new_height
+
+        def get_value(self, x: int, y: int) -> str or float or int or None:
+            """"
+            Gets value of cell at x, y.
+            Throws IndexError if x or y is outside range of snapshot.
+            :param x: int
+            :param y: int
+            :return str, float, int or None
+            """
+            try:
+                row = self._values[y]
+            except IndexError:
+                raise IndexError('Snapshot:get_value: %s is outside height of '
+                                 'snapshot. (height:%s)' %
+                                 (x, self._height))
+            else:
+                try:
+                    return row[x]  # return value
+                except IndexError:
+                    raise IndexError(
+                        'Snapshot:get_value: %s is outside width of '
+                        'snapshot. (width:%s)' %
+                        (x, self._width))
+
+        def set_value(self, x: int, y: int, value) -> None:
+            """
+            Sets value of cell at x, y. (to be committed to cell when
+            snapshot is written.)
+            Throws IndexError if x or y is outside range of snapshot
+            :param x: int
+            :param y: int
+            :param value: Any
+            :return: None
+            """
+            if not isinstance(value, (int, float, str, None)):
+                raise TypeError(
+                    'Snapshot:set_value: Passed value should be an int, float'
+                    ' , str, or None. Got: %s' % repr(value))
+            if x >= self._width or y >= self._height:
+                if self.frozen_size:
+                    raise IndexError(
+                        'Snapshot:set_value: (%s, %s) is outside range of '
+                        'snapshot (size: (%s, %s)' %
+                        (x, y, self._width, self._height)
+                    )
+                self._grow(x + 1, y + 1)
+            self._values[y][x] = value
+
+        def write(self):
+            """
+            Commits values in snapshot to sheet in a single bulk write
+            :return: None
+            """
+            raise NotImplementedError
 
 
 class LineSeries:
@@ -1618,6 +1770,34 @@ class Office:
                     self.i7e_sheet.book.fullname,
                 )
 
+            class Snapshot(Sheet.Snapshot):
+                """
+                Snapshot of an XW sheet.
+                """
+
+                def _get_values(self) -> list:
+                    assert isinstance(self._width, int)
+                    assert isinstance(self._height, int)
+                    if self._width == 1 and self._height == 1:
+                        return [[self._sheet.i7e_sheet.range('A1').value]]
+                    elif self._height == 1:
+                        return [self._sheet.i7e_sheet.range(
+                            'A1', (1, self._width)
+                        ).value]
+                    elif self._width == 1:
+                        return [[value] for value in
+                                self._sheet.i7e_sheet.range(
+                                  'A1', (self._height, 1)
+                                )]
+                    elif self._width > 1 and self._height > 1:
+                        return self._sheet.i7e_sheet.range(
+                            'A1',  # start cell
+                            (self._height, self._width)  # end cell
+                        ).value
+
+                def write(self):
+                    self._sheet.i7e_sheet.range('A1').value = self._values
+
         class Line(Line):
             """
             XW Line
@@ -1695,15 +1875,25 @@ class Office:
             @property
             @Cell.value_cache
             def value(self) -> int or float or str or None:
+                if self.sheet.snapshot:  # if sheet has a snapshot:
+                    try:  # try to get value from snapshot
+                        return self.sheet.snapshot.get_value(self.x, self.y)
+                    except IndexError:
+                        pass  # if it does not contain this cell x,y: get range
                 return self._range.value
 
             @value.setter
             @Cell.clear_cache
-            def value(self, new_value) -> None:
-                self._range.value = new_value
+            def value(self, new_v) -> None:
+                if self.sheet.snapshot:  # if sheet has a snapshot
+                    try:
+                        self.sheet.snapshot.set_value(self.x, self.y, new_v)
+                        return
+                    except IndexError:
+                        pass  # if value outside snapshot bounds, set normally
+                self._range.value = new_v
 
             @property
-            @Cell.value_cache
             def float(self):
                 # XW will only return number (float), str or None in most
                 # cases, others include Date, (etc)?
@@ -1713,7 +1903,6 @@ class Office:
                     return 0.
 
             @property
-            @Cell.value_cache
             def string(self):
                 if self.value is not None:
                     string = str(self.value)
@@ -2089,6 +2278,7 @@ class Translation:
         self.log_group = log_group
         self.row_log = RowLog(OS.get_log_dir_path()) if \
             read_log or write_log else None
+        self._source_sheet.take_snapshot()  # take snapshot of source sheet
         # create column translations from passed list of dicts
         # in settings
         self._column_translations = []
@@ -2100,6 +2290,7 @@ class Translation:
 
         self._get_cell_generators()
         self._generate_cell_translations()
+        self._source_sheet.discard_snapshot()  # we're done with source sheet
 
         if self.duplicate_action == DUPLICATE_HIGHLIGHT_STR:
             self._highlight_translation_rows_with_duplicates()
@@ -2112,17 +2303,13 @@ class Translation:
             self._remove_whitespace_in_translation_rows()
 
     def commit(self):
-        try:
-            print('committing translations')
-            self.source_sheet.screen_updating = False
-            self.target_sheet.screen_updating = False
-            self.clear_target()
-            self._apply_translation_rows()
-            if self.write_log:  # write log if that setting is set by user.
-                self.row_log.make_log(self.log_group, self.target_sheet)
-        finally:
-            self.source_sheet.screen_updating = True
-            self.target_sheet.screen_updating = True
+        print('committing translations')
+        self.target_sheet.take_snapshot()
+        self.clear_target()
+        self._apply_translation_rows()
+        if self.write_log:  # write log if that setting is set by user.
+            self.row_log.make_log(self.log_group, self.target_sheet)
+        self.target_sheet.write_snapshot()
 
     def _apply_translation_rows(self):
         for y in self.translation_rows:
