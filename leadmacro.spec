@@ -15,20 +15,26 @@ a = Analysis(['leadmacro.py'],
              win_private_assemblies=False,
              cipher=block_cipher)
 
-a.binaries = [x for x in a.binaries if not x[0].startswith("scipy")]
+excluded_prefixes = (
+    "scipy",
+    "zmq",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "mkl_",
+    "Cython",
+    "babel"
+)
 
-a.binaries = [x for x in a.binaries if not x[0].startswith("zmq")]
-
-a.binaries = [x for x in a.binaries if not x[0].startswith("matplotlib")]
-
-a.binaries = [x for x in a.binaries if not x[0].startswith("numpy")]
-
-a.binaries = [x for x in a.binaries if not x[0].startswith("pandas")]
+a.binaries = [x for x in a.binaries if not any(
+    [x[0].startswith(prefix) for prefix in excluded_prefixes])]
 
 a.binaries = a.binaries - TOC([
  ('sqlite3.dll', None, None),
  ('tcl85.dll', None, None),
  ('tk85.dll', None, None),
+ ('tcl86.dll', None, None),
+ ('tk86.dll', None, None),
  ('_sqlite3', None, None),
  ('_ssl', None, None),
  ('_tkinter', None, None)])
