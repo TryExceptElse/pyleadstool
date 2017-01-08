@@ -249,7 +249,7 @@ class WorkBookComponent:
         :param getter: callable
         :return: callable
         """
-        def wrapper(o, *args, **kwargs):
+        def getter_wrapper(o, *args, **kwargs):
             # if caching is not possible, just call getter
             # to do this, find sheet and check if exclusive_editor is True
             if not o.sheet.exclusive_editor:
@@ -265,7 +265,7 @@ class WorkBookComponent:
             except KeyError:
                 value = cache[getter] = getter(o, *args, **kwargs)
             return value
-        return wrapper
+        return getter_wrapper
 
     @staticmethod
     def enduring_cache(getter):

@@ -15,7 +15,23 @@ a = Analysis(['leadmacro.py'],
              win_private_assemblies=False,
              cipher=block_cipher)
 
+a.binaries = [x for x in a.binaries if not x[0].startswith("scipy")]
 
+a.binaries = [x for x in a.binaries if not x[0].startswith("zmq")]
+
+a.binaries = [x for x in a.binaries if not x[0].startswith("matplotlib")]
+
+a.binaries = [x for x in a.binaries if not x[0].startswith("numpy")]
+
+a.binaries = [x for x in a.binaries if not x[0].startswith("pandas")]
+
+a.binaries = a.binaries - TOC([
+ ('sqlite3.dll', None, None),
+ ('tcl85.dll', None, None),
+ ('tk85.dll', None, None),
+ ('_sqlite3', None, None),
+ ('_ssl', None, None),
+ ('_tkinter', None, None)])
 
 pyz = PYZ(a.pure, a.zipped_data,
              cipher=block_cipher)
