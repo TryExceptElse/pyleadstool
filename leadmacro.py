@@ -1810,7 +1810,11 @@ class Office:
                             'A1',  # start cell
                             (self._height, self._width)  # end cell
                         ).value
-                    assert values is not None
+                    else:
+                        raise ValueError(
+                            'Snapshot:_get_values: width, height were %s, %s' %
+                            self._width, self._height)
+                    assert values is not None  # just sanity checking
                     return values
 
                 def write(self):
