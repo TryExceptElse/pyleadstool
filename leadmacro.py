@@ -39,10 +39,6 @@ TODO:
         *   XML table storing sheets/values
         *   Folder containing a file for each used input sheet,
                 storing key values
-*   Increase speed at which values in Excel are accessed
-    *   Access whole lines of data at a time, rather than individual cells
-        *   May be faster / easier to implement
-    *   Disable cell display update on value change during Translation commit
 *   Add message to user, asking them not to edit source sheet
 
 Contents:
@@ -65,12 +61,16 @@ in ubuntu, this can be installed via
 
 import collections
 import os
+import datetime  # used for saving logs by time
 import pickle
-import csv
+import csv  # used for saving logs
 import platform
 import sys
 
-import PyQt5.QtWidgets as QtW
+from PyQt5.QtWidgets import QMessageBox, QVBoxLayout, QHBoxLayout, \
+    QInputDialog, QCheckBox, QComboBox, QPushButton, QGridLayout, \
+    QLineEdit, QDialog, QTableWidget, QTableWidgetItem, QListWidget, \
+    QWidget, QLabel, QApplication
 
 try:
     import xlwings as xw
@@ -79,6 +79,7 @@ except ImportError:
 
 APP_FOLDER_NAME = 'leadsmacro'
 SAVED_TRANSLATIONS_FOLDER_NAME = 'saved_translations'
+LOG_DIR_NAME = 'logs'
 SERIALIZED_OBJ_SUFFIX = '.pkl'
 
 MAX_CELL_GAP = 10  # max distance between inhabited cells in the workbook
@@ -127,6 +128,11 @@ SOURCE_COLUMN_INDEX_KEY = 'source_column_i'
 TARGET_COLUMN_INDEX_KEY = 'target_column_i'
 WHITESPACE_CHK_KEY = 'check_for_whitespace'
 DUPLICATE_CHK_KEY = 'check_for_duplicates'
+
+# Row dlg settings
+LOG_WRITE_KEY = 'log_write'
+LOG_READ_KEY = 'log_read'
+LOG_GROUP_KEY = 'log_group'
 
 WHITESPACE_REMOVE_STR = 'Remove Whitespace'
 WHITESPACE_HIGHLIGHT_STR = 'Highlight'
@@ -215,14 +221,7 @@ class WorkBookComponent:
     Abstract class with common methods for classes that exist within
     a workbook.
     """
-    def sheet(self) -> 'Sheet':
-        """
-        Returns reference to sheet to which this WorkBookComponent
-        belongs. If this component is a sheet,
-        returns reference to self.
-        :return: Sheet
-        """
-        raise NotImplementedError
+    sheet = None
 
     @property
     def parents(self):
@@ -250,25 +249,11 @@ class WorkBookComponent:
         :param getter: callable
         :return: callable
         """
-
-    class ValueCache:
-        """
-        Class to be used by value_cache decorator
-        """
-
-        def __init__(self, getter) -> None:
-            self._getter = getter
-
-        def __call__(self, *args, **kwargs):
-            """
-            Method to return value
-            :return: Any
-            """
-            o = args[0]  # get 'self' arg for method being called
+        def getter_wrapper(o, *args, **kwargs):
             # if caching is not possible, just call getter
             # to do this, find sheet and check if exclusive_editor is True
             if not o.sheet.exclusive_editor:
-                return self._getter(*args, **kwargs)
+                return getter(o, *args, **kwargs)
             # get cache
             try:
                 cache = o.__value_cache
@@ -276,10 +261,41 @@ class WorkBookComponent:
                 cache = o.__value_cache = {}
             # if caching is possible, but nothing is in cache, set it
             try:
-                value = cache[self]  # try to return cached value
+                value = cache[getter]  # try to return cached value
             except KeyError:
-                value = cache[self] = self._getter(*args, **kwargs)
+                value = cache[getter] = getter(o, *args, **kwargs)
             return value
+        return getter_wrapper
+
+    @staticmethod
+    def enduring_cache(getter):
+        """
+        Caches results of method in a cache that is not removed
+        when a clear_cache method is called. This is to be used
+        for methods whose results will always remain the same
+        for the object they have been called upon, even if values
+        of that WorkBookObject have changed.
+        This method will also cache results regardless of whether
+        the sheet interface obj is the exclusive editor of its values,
+        since changes made by other means do not affect the returned
+        values of the method being cached.
+        :param getter: callable
+        :return: callable
+        """
+        def enduring_cache_getter(o, *args, **kwargs):
+            # get cache
+            try:
+                cache = o.__enduring_cache
+            except AttributeError:
+                cache = o.__enduring_cache = {}
+            # if caching is possible, but nothing is in cache, set it
+            try:
+                value = cache[getter]  # try to return cached value
+            except KeyError:
+                value = cache[getter] = getter(o, *args, **kwargs)
+            return value
+
+        return enduring_cache_getter
 
     @staticmethod
     def clear_cache(setter):
@@ -291,14 +307,13 @@ class WorkBookComponent:
         :return: callable
         """
 
-        def setter_wrapper(*args, **kwargs) -> None:
+        def setter_wrapper(o, *args, **kwargs) -> None:
             """
             Function wrapping passed setter method.
             first clears cached values,
             then calls original setter method with values.
             :return: None
             """
-            o = args[0]  # get 'self' argument passed to method
             assert isinstance(o, WorkBookComponent)
             # for each WorkBookComponent modified, clear its cache
             modified_components = \
@@ -311,7 +326,7 @@ class WorkBookComponent:
                 else:  # if cell has a cache, clear it.
                     assert isinstance(cache, dict)
                     cache.clear()
-            setter(*args, **kwargs)  # call original value setter method
+            setter(o, *args, **kwargs)  # call original value setter method
 
         return setter_wrapper
 
@@ -326,6 +341,7 @@ class Sheet(WorkBookComponent):
     _reference_column_index = 0
     _content_row_start = None  # default start index of table_row iter
     _table_col_start = None  # default start index of table_col iter
+    _snapshot = None
     exclusive_editor = False  # true if no concurrent editing will occur
 
     _all_sheets = {}  # all sheets so far instantiated, by repr string
@@ -364,13 +380,8 @@ class Sheet(WorkBookComponent):
             )
 
     @staticmethod
-    def key(i7e_sheet) -> object:
-        """
-        Gets key unique to edited sheet from interface sheet.
-        :param i7e_sheet: interface sheet
-        :return: object
-        """
-        raise NotImplementedError
+    def key(i7e_sheet):
+        return i7e_sheet
 
     def get_column(
             self,
@@ -408,8 +419,8 @@ class Sheet(WorkBookComponent):
         the passed value.
         :return: Office.Column
         """
-        x = self.get_column_index_from_name(column_name)
-        return self.get_column_by_index(x) if x is not None else None
+        i = self.get_column_index_from_name(column_name)
+        return self.get_column_by_index(i) if i is not None else None
 
     def get_column_index_from_name(
         self,
@@ -675,6 +686,55 @@ class Sheet(WorkBookComponent):
             )
         self._content_row_start = new_i
 
+    def take_snapshot(
+            self,
+            width: int=None,
+            height: int=None,
+            frozen_size: bool=False
+    ):
+        """
+        Gets snapshot of sheet as it currently exists, and uses that
+        for all reading and writing of values.
+        The snapshot will by default include all values within the
+        width of the reference row, and within the height of the
+        reference column. Values outside that area may be overridden
+        if the range is expanded.
+        The snapshot can be prevented from growing by setting
+        frozen_size to True.
+        :param width: int
+        :param height: int
+        :param frozen_size: bool
+        :return: None
+        """
+        if height is None:
+            height = len(self.reference_column)
+        if width is None:
+            width = len(self.reference_row)
+        if height == 0 and width > 0:
+            height = 1
+        if width == 0 and height > 0:
+            width = 1
+        self._snapshot = self.Snapshot(self, width, height, frozen_size)
+
+    def write_snapshot(self):
+        """
+        Writes values in snapshot to memory in one single write
+        (much, much faster than writing each cell individually)
+        :return: None
+        """
+        self._snapshot.write()
+
+    def discard_snapshot(self):
+        """
+        Throws out snapshot along with all changes made to it
+        :return: None
+        """
+        self._snapshot = None
+
+    @property
+    def snapshot(self) -> None or 'Snapshot':
+        return self._snapshot
+
     @property
     def screen_updating(self) -> bool or None:
         """
@@ -709,6 +769,112 @@ class Sheet(WorkBookComponent):
 
     def __repr__(self) -> str:
         raise NotImplementedError
+
+    class Snapshot:
+        """
+        Class storing a sheet entirely in memory, so that individual
+        reads and writes to a sheet can be grouped together.
+        Snapshot is sub-classed within XW and Uno.
+        """
+
+        def __init__(
+                self,
+                sheet: 'Sheet',
+                width: int,
+                height: int,
+                frozen_size: bool
+        ) -> None:
+            self._sheet = sheet
+            self._height = height
+            self._width = width
+            self.frozen_size = frozen_size
+            self._values = self._get_values()
+
+        def _get_values(self) -> list:
+            """
+            Gets list of lists containing values of cells within snapshot
+            :return: list[list[str, float or None]]
+            """
+            raise NotImplementedError
+
+        def _grow(self, new_width: int=None, new_height: int=None) -> None:
+            """
+            Grows snapshot to new passed size.
+            If passed width or height is smaller than the present size,
+            the snapshot will stay the same size, it will not shrink.
+            :param new_width: int
+            :param new_height: int
+            :return: None
+            """
+            if new_height < self._height:
+                new_height = self._height
+            if new_width < self._width:
+                new_width = self._width
+            height_difference = new_height - self._height
+            width_difference = new_width - self._width
+            # first add rows
+            if height_difference:
+                self._values += [[None] * new_width] * height_difference
+            # then columns
+            if width_difference:
+                for i in range(0, self._height):  # for each pre-existing row
+                    self._values[i] += [None] * width_difference
+            self._width = new_width
+            self._height = new_height
+
+        def get_value(self, x: int, y: int) -> str or float or int or None:
+            """"
+            Gets value of cell at x, y.
+            Throws IndexError if x or y is outside range of snapshot.
+            :param x: int
+            :param y: int
+            :return str, float, int or None
+            """
+            try:
+                row = self._values[y]
+            except IndexError:
+                raise IndexError('Snapshot:get_value: %s is outside height of '
+                                 'snapshot. (height:%s)' %
+                                 (x, self._height))
+            else:
+                try:
+                    return row[x]  # return value
+                except IndexError:
+                    raise IndexError(
+                        'Snapshot:get_value: %s is outside width of '
+                        'snapshot. (width:%s)' %
+                        (x, self._width))
+
+        def set_value(self, x: int, y: int, value) -> None:
+            """
+            Sets value of cell at x, y. (to be committed to cell when
+            snapshot is written.)
+            Throws IndexError if x or y is outside range of snapshot
+            :param x: int
+            :param y: int
+            :param value: Any
+            :return: None
+            """
+            if not isinstance(value, (int, float, str, None)):
+                raise TypeError(
+                    'Snapshot:set_value: Passed value should be an int, float'
+                    ' , str, or None. Got: %s' % repr(value))
+            if x >= self._width or y >= self._height:
+                if self.frozen_size:
+                    raise IndexError(
+                        'Snapshot:set_value: (%s, %s) is outside range of '
+                        'snapshot (size: (%s, %s)' %
+                        (x, y, self._width, self._height)
+                    )
+                self._grow(x + 1, y + 1)
+            self._values[y][x] = value
+
+        def write(self):
+            """
+            Commits values in snapshot to sheet in a single bulk write
+            :return: None
+            """
+            raise NotImplementedError
 
 
 class LineSeries:
@@ -754,9 +920,9 @@ class LineSeries:
             ref_cells = self.reference_line[self.start_index:]
         for cell in ref_cells:
             if self._contents_type == LineSeries.COLUMNS_STR:
-                return cell.column
+                yield cell.column
             if self._contents_type == LineSeries.ROWS_STR:
-                return cell.rows
+                yield cell.rows
 
     def __len__(self) -> int:
         """
@@ -934,7 +1100,19 @@ class Line(WorkBookComponent):
         :param s: slice
         :return: Generator[Cell]
         """
-        for i in range(s.start, s.stop, s.step):
+        if s.start is None:
+            start = 0
+        else:
+            start = s.start
+        if s.stop is None:
+            stop = len(self)
+        else:
+            stop = s.stop
+        if s.step is not None:
+            rng = range(start, stop, s.step)
+        else:
+            rng = range(start, stop)
+        for i in rng:
             if i in range(len(self)):
                 yield self[i]
 
@@ -1008,6 +1186,15 @@ class Line(WorkBookComponent):
         """
         return self[self.name_cell_index].value
 
+    def to_dict(self) -> dict:
+        """
+        Returns line values as dictionary, with cell values as values,
+        and corresponding reference row values as keys.
+        :return: dict
+        """
+        return {line_cell.value: ref_cell.value for
+                line_cell, ref_cell in zip(self, self._reference_line)}
+
     def __repr__(self) -> str:
         return '%s(sheet=%s, index(0-base)=%s, ref_index=%s) name: %s' % (
             self.__class__.__name__,
@@ -1035,7 +1222,7 @@ class Line(WorkBookComponent):
 
 class Column(Line):
     """
-    Abstract Column class, extended by Office.XW.Column and Office.XW.Row
+    Abstract Column class, extended by Office.XW.Column and Office.Uno.Column
     """
     _all = {}  # dict storing all unique sheet+index possibilities
 
@@ -1498,14 +1685,14 @@ class Office:
                 if isinstance(item, str) and "::" in item:
                     # split and find book + name
                     book_name, sheet_name = item.split("::")
-                    return Office.XW.Sheet(
+                    return Sheet.factory(
                         self.active_app.books[book_name].sheets[sheet_name]
                     )
                 else:
                     # otherwise just look everywhere
                     for sheet in self._xw_sheets:
                         if sheet.name == item:
-                            return Office.XW.Sheet(
+                            return Sheet.factory(
                                 sheet
                             )
 
@@ -1537,7 +1724,7 @@ class Office:
                 :return: Sheet
                 """
                 for xw_sheet in self._xw_sheets:
-                    yield Office.XW.Sheet(xw_sheet)
+                    yield Sheet.factory(xw_sheet)
 
             @property
             def sheet_names(self):
@@ -1555,12 +1742,12 @@ class Office:
             """
             def __init__(
                     self,
-                    xw_sheet,
+                    i7e_sheet,
                     reference_row_index=0,
                     reference_column_index=0
             ) -> None:
                 super().__init__(
-                    i7e_sheet=xw_sheet,
+                    i7e_sheet=i7e_sheet,
                     reference_column_index=reference_column_index,
                     reference_row_index=reference_row_index
                 )
@@ -1574,25 +1761,63 @@ class Office:
 
             @property
             def screen_updating(self) -> None:
-                return self.i7e_sheet.screen_updating
+                return self.i7e_sheet.book.app.screen_updating
 
             @screen_updating.setter
             def screen_updating(self, new_bool: bool) -> None:
-                self.i7e_sheet.screen_updating = new_bool
+                self.i7e_sheet.book.app.screen_updating = new_bool
 
+            @Sheet.enduring_cache
             def __str__(self) -> str:
                 return 'Sheet[%s::%s]' % (
                     self.i7e_sheet.name,
                     self.i7e_sheet.book.name,
                 )
 
+            @Sheet.enduring_cache  # this Sheet's repr should not change
             def __repr__(self) -> str:
                 return 'Sheet[%s::%s]' % (
                     self.i7e_sheet.name,
                     self.i7e_sheet.book.fullname,
                 )
 
+            class Snapshot(Sheet.Snapshot):
+                """
+                Snapshot of an XW sheet.
+                """
+
+                def _get_values(self) -> list:
+                    assert isinstance(self._width, int)
+                    assert isinstance(self._height, int)
+                    assert (self._width == 0) == (self._height == 0)
+                    if self._width == 0 and self._height == 0:
+                        values = [[]]
+                    elif self._width == 1 and self._height == 1:
+                        values = [[self._sheet.i7e_sheet.range('A1').value]]
+                    elif self._height == 1:
+                        values = [self._sheet.i7e_sheet.range(
+                            'A1', (1, self._width)
+                        ).value]
+                    elif self._width == 1:
+                        values = [[value] for value in
+                                  self._sheet.i7e_sheet.range(
+                                  'A1', (self._height, 1)
+                                  )]
+                    elif self._width > 1 and self._height > 1:
+                        values = self._sheet.i7e_sheet.range(
+                            'A1',  # start cell
+                            (self._height, self._width)  # end cell
+                        ).value
+                    assert values is not None
+                    return values
+
+                def write(self):
+                    self._sheet.i7e_sheet.range('A1').value = self._values
+
         class Line(Line):
+            """
+            XW Line
+            """
             pass  # no methods defined here at this time.
             # keeping for MR0 purposes
 
@@ -1666,15 +1891,25 @@ class Office:
             @property
             @Cell.value_cache
             def value(self) -> int or float or str or None:
+                if self.sheet.snapshot:  # if sheet has a snapshot:
+                    try:  # try to get value from snapshot
+                        return self.sheet.snapshot.get_value(self.x, self.y)
+                    except IndexError:
+                        pass  # if it does not contain this cell x,y: get range
                 return self._range.value
 
             @value.setter
             @Cell.clear_cache
-            def value(self, new_value) -> None:
-                self._range.value = new_value
+            def value(self, new_v) -> None:
+                if self.sheet.snapshot:  # if sheet has a snapshot
+                    try:
+                        self.sheet.snapshot.set_value(self.x, self.y, new_v)
+                        return
+                    except IndexError:
+                        pass  # if value outside snapshot bounds, set normally
+                self._range.value = new_v
 
             @property
-            @Cell.value_cache
             def float(self):
                 # XW will only return number (float), str or None in most
                 # cases, others include Date, (etc)?
@@ -1684,7 +1919,6 @@ class Office:
                     return 0.
 
             @property
-            @Cell.value_cache
             def string(self):
                 if self.value is not None:
                     string = str(self.value)
@@ -1786,24 +2020,20 @@ class Office:
 
         class Sheet(Sheet):
             """
-            Handles usage of a workbook sheet
+            Handles usage of a single Uno workbook sheet
             """
 
             def __init__(
                     self,
-                    uno_sheet,
+                    i7e_sheet,
                     reference_row_index=0,
                     reference_column_index=0
             ) -> None:
                 super().__init__(
-                    i7e_sheet=uno_sheet,
+                    i7e_sheet=i7e_sheet,
                     reference_row_index=reference_row_index,
                     reference_column_index=reference_column_index
                 )
-
-            @staticmethod
-            def key(i7e_sheet):
-                return i7e_sheet  # todo: get name of sheet
 
         class Line(Line):
             pass  # no methods defined here anymore,
@@ -2038,6 +2268,9 @@ class Translation:
             target_start_row=1,
             whitespace_action=WHITESPACE_HIGHLIGHT_STR,
             duplicate_action=DUPLICATE_HIGHLIGHT_STR,
+            read_log: bool=False,
+            write_log: bool=False,
+            log_group: str=None,
     ):
 
         if not isinstance(source_sheet, Sheet):
@@ -2056,6 +2289,12 @@ class Translation:
         self._target_start_row = target_start_row
         self._whitespace_action = whitespace_action
         self._duplicate_action = duplicate_action
+        self.read_log = read_log
+        self.write_log = write_log
+        self.log_group = log_group
+        self.row_log = RowLog(OS.get_log_dir_path()) if \
+            read_log or write_log else None
+        self._source_sheet.take_snapshot()  # take snapshot of source sheet
         # create column translations from passed list of dicts
         # in settings
         self._column_translations = []
@@ -2065,43 +2304,42 @@ class Translation:
         self.cell_translation_generators = []  # x_index: generator
         self.cell_translations = {}  # src_pos: CellTranslation
 
-        self.get_cell_generators()
-        self.generate_cell_translations()
+        self._get_cell_generators()
+        self._generate_cell_translations()
+        self._source_sheet.discard_snapshot()  # we're done with source sheet
 
         if self.duplicate_action == DUPLICATE_HIGHLIGHT_STR:
-            self.highlight_translation_rows_with_duplicates()
+            self._highlight_translation_rows_with_duplicates()
         elif self.duplicate_action == DUPLICATE_REMOVE_ROW_STR:
-            self.remove_translation_rows_with_duplicates()
+            self._remove_translation_rows_with_duplicates()
 
         if self.whitespace_action == WHITESPACE_HIGHLIGHT_STR:
-            self.highlight_translation_rows_with_whitespace()
+            self._highlight_translation_rows_with_whitespace()
         elif self.whitespace_action == WHITESPACE_REMOVE_STR:
-            self.remove_whitespace_in_translation_rows()
+            self._remove_whitespace_in_translation_rows()
 
     def commit(self):
-        try:
-            print('committing translations')
-            self.source_sheet.screen_updating = False
-            self.target_sheet.screen_updating = False
-            self.clear_target()
-            self.apply_translation_rows()
-        finally:
-            self.source_sheet.screen_updating = True
-            self.target_sheet.screen_updating = True
+        print('committing translations')
+        self.target_sheet.take_snapshot()
+        self.clear_target()
+        self._apply_translation_rows()
+        if self.write_log:  # write log if that setting is set by user.
+            self.row_log.make_log(self.log_group, self.target_sheet)
+        self.target_sheet.write_snapshot()
 
-    def apply_translation_rows(self):
+    def _apply_translation_rows(self):
         for y in self.translation_rows:
             t_row = self.translation_rows[y]
             assert isinstance(t_row, TranslationRow)
             t_row.apply(self.target_sheet, y)
 
-    def get_cell_generators(self):
+    def _get_cell_generators(self):
         for column_translation in self.column_translations:
             assert isinstance(column_translation, ColumnTranslation)
             self.cell_translation_generators.append(
                 column_translation.get_generator())
 
-    def generate_cell_translations(self):
+    def _generate_cell_translations(self):
         print('mapping row translations')
         y = self._source_start_row
         while any([generator.has_next() for generator in
@@ -2119,7 +2357,7 @@ class Translation:
             y += 1
         print('done mapping row translations')
 
-    def highlight_translation_rows_with_whitespace(self):
+    def _highlight_translation_rows_with_whitespace(self):
         whitespace_positions = list(self.get_whitespace_positions())
         assert isinstance(whitespace_positions, list)
         for item in whitespace_positions:
@@ -2140,7 +2378,7 @@ class Translation:
             )
         self._whitespace_feedback(whitespace_positions)
 
-    def remove_whitespace_in_translation_rows(self):
+    def _remove_whitespace_in_translation_rows(self):
         whitespace_positions = list(self.get_whitespace_positions())
         for pos in whitespace_positions:
             try:
@@ -2151,7 +2389,7 @@ class Translation:
                 continue
         self._whitespace_feedback(whitespace_positions)
 
-    def highlight_translation_rows_with_duplicates(self):
+    def _highlight_translation_rows_with_duplicates(self):
         duplicate_positions = list(self.get_duplicate_positions())
         for pos in duplicate_positions:
             try:
@@ -2168,7 +2406,7 @@ class Translation:
             )
         self._duplicates_feedback(duplicate_positions)
 
-    def remove_translation_rows_with_duplicates(self):
+    def _remove_translation_rows_with_duplicates(self):
         duplicate_positions = list(self.get_duplicate_positions())
         for pos in duplicate_positions:
             try:
@@ -2212,16 +2450,16 @@ class Translation:
                 yield cell.position
         print('done looking for whitespace')
 
-    def confirm_overwrite(self):
-        reply = QtW.QMessageBox.question(
+    def _confirm_overwrite(self):
+        reply = QMessageBox.question(
             self._dialog_parent,
             'Overwrite Cells?',
             'Cells on the target sheet will be overwritten.\n'
             'Proceed?',
-            QtW.QMessageBox.Yes | QtW.QMessageBox.Cancel,
-            QtW.QMessageBox.Cancel
+            QMessageBox.Yes | QMessageBox.Cancel,
+            QMessageBox.Cancel
         )
-        return reply == QtW.QMessageBox.Yes
+        return reply == QMessageBox.Yes
 
     def add_column_translation(self, *args, **kwargs) -> None:
         """
@@ -2297,9 +2535,9 @@ class Translation:
                     continue
                 if not user_ok and cell.value != '':
                     # if user has not yet ok'd deletion of cells:
-                    if self.confirm_overwrite:
+                    if self._confirm_overwrite:
                         print('confirm dlg')
-                        proceed = self.confirm_overwrite()
+                        proceed = self._confirm_overwrite()
                         if not proceed:
                             return False
                     user_ok = True
@@ -2761,7 +2999,7 @@ class ColumnTranslation:
     def get_duplicate_source_cells(self):
         """
         Yields cells in source column with values that are duplicates of
-        previously occuring values
+        previously occurring values
         :return: iterator of cells
         """
         assert self._parent_translation is not None, \
@@ -2769,9 +3007,16 @@ class ColumnTranslation:
         values = set()
         for cell in self.source_column:
             value = cell.value_without_whitespace
+            # if cell's value is in set of existing values, return cell.
             if value in values:
                 yield cell
-            values.add(value)
+            else:  # otherwise, check if cell is in log
+                parent = self._parent_translation
+                if parent.read_log:  # if option is set
+                    parent.row_log.find_duplicates(
+                        value, parent.log_group, self.target_column_name
+                    )
+                values.add(value)  # add value to set of existing values
 
 
 class CellGenerator:
@@ -2870,13 +3115,14 @@ class CellTransform:
 ###############################################################################
 # GUI elements
 
-class PyLeadDlg(QtW.QDialog):
+class PyLeadDlg(QDialog):
     """
     Abstract class inherited from by other dialogs
     """
     quit_flag = False
 
     def __init__(self, settings: dict) -> None:
+        # noinspection PyArgumentList
         super().__init__()
         self._initial_settings = settings
 
@@ -2937,14 +3183,6 @@ class TranslationDialog(PyLeadDlg):
         self.target_start_row = target_start
         self.setWindowTitle(APP_WINDOW_TITLE)
 
-        def ok():
-            """Function to confirm selections and create Translation"""
-            self.accept()
-
-        def back():
-            """Function to resume prior dialog and close self"""
-            self.reject()
-
         self.table = self.TranslationTable(
             source_sheet=self.source_sheet,
             target_sheet=self.target_sheet,
@@ -2952,26 +3190,26 @@ class TranslationDialog(PyLeadDlg):
         )
 
         # build layouts
-        main_layout = QtW.QVBoxLayout()
+        main_layout = QVBoxLayout()
         main_layout.addWidget(self.table)
-        save_and_load_bar = QtW.QHBoxLayout()
-        save_button = QtW.QPushButton('Save Translations')
+        save_and_load_bar = QHBoxLayout()
+        save_button = QPushButton('Save Translations')
         # noinspection PyUnresolvedReferences
         save_button.clicked.connect(self.save_translations)
         save_and_load_bar.addWidget(save_button)
-        load_button = QtW.QPushButton('Load Translations')
+        load_button = QPushButton('Load Translations')
         # noinspection PyUnresolvedReferences
         load_button.clicked.connect(self.load_saved_translations)
         save_and_load_bar.addWidget(load_button)
         main_layout.addItem(save_and_load_bar)
-        confirm_bar = QtW.QHBoxLayout()
-        confirm_bar.addWidget(BackButton(back))
-        confirm_bar.addWidget(OkButton(ok))
+        confirm_bar = QHBoxLayout()
+        confirm_bar.addWidget(BackButton(self.reject))
+        confirm_bar.addWidget(OkButton(self.accept))
         main_layout.addItem(confirm_bar)
         self.setLayout(main_layout)
         self.setMinimumWidth(DEFAULT_WIDGET_W)
 
-    class TranslationTable(QtW.QTableWidget):
+    class TranslationTable(QTableWidget):
         def __init__(
                 self,
                 source_sheet: Sheet,
@@ -2982,7 +3220,7 @@ class TranslationDialog(PyLeadDlg):
             self.source_sheet = source_sheet
             self.target_sheet = target_sheet
             self.col_assoc = Associations()
-            assert isinstance(presets, list) or presets is None, \
+            assert presets is None or isinstance(presets, list), \
                 'Expected presets to be a list or None. Got %s' % presets
             if presets is not None:
                 assert all([isinstance(item, dict) for item in presets])
@@ -3005,7 +3243,7 @@ class TranslationDialog(PyLeadDlg):
             print('drawing table')
             self.draw_table()
 
-        class SourceColumnDropDown(QtW.QComboBox):
+        class SourceColumnDropDown(QComboBox):
             name = 'Source Column'
             dict_name = SOURCE_COLUMN_NAME_KEY
             default_value = NONE_STRING
@@ -3042,7 +3280,7 @@ class TranslationDialog(PyLeadDlg):
             def value(self):
                 return self.currentText()
 
-        class WhiteSpaceCheckbox(QtW.QCheckBox):
+        class WhiteSpaceCheckbox(QCheckBox):
             name = 'Check for Whitespace'
             dict_name = WHITESPACE_CHK_KEY
             default_value = True
@@ -3060,7 +3298,7 @@ class TranslationDialog(PyLeadDlg):
             def value(self):
                 return self.isChecked()
 
-        class DuplicateCheckbox(QtW.QCheckBox):
+        class DuplicateCheckbox(QCheckBox):
             name = 'Check for Duplicates'
             dict_name = DUPLICATE_CHK_KEY
             default_value = False
@@ -3085,10 +3323,10 @@ class TranslationDialog(PyLeadDlg):
             self.setColumnCount(len(self.option_widget_classes))
             self.setAlternatingRowColors(True)
             # set row titles
-            [self.setVerticalHeaderItem(y, QtW.QTableWidgetItem(column)) for
+            [self.setVerticalHeaderItem(y, QTableWidgetItem(column)) for
              y, column in enumerate(self.tgt_col_names)]
             # set option column titles
-            [self.setHorizontalHeaderItem(x, QtW.QTableWidgetItem(option.name))
+            [self.setHorizontalHeaderItem(x, QTableWidgetItem(option.name))
              for x, option in enumerate(self.option_widget_classes)]
             self.populate_table(self.presets)
             self.auto_fill()  # attempt to fill in cells left empty by presets
@@ -3127,7 +3365,7 @@ class TranslationDialog(PyLeadDlg):
                 # this returns None if invalid index is passed.
                 if tgt_row_name_item is None:
                     break
-                assert isinstance(tgt_row_name_item, QtW.QTableWidgetItem), \
+                assert isinstance(tgt_row_name_item, QTableWidgetItem), \
                     "Got: %s" % tgt_row_name_item
                 tgt_row_name = tgt_row_name_item.text()
                 drop_down_menu = self.cellWidget(y, x)
@@ -3143,7 +3381,7 @@ class TranslationDialog(PyLeadDlg):
                             filled_tgt_columns.append(tgt_row_name)
                 y += 1
             if filled_tgt_columns:
-                msg = QtW.QMessageBox()
+                msg = QMessageBox()
                 msg.setDetailedText(
                     "The following target columns have been autofilled:\n%s"
                     % '\n'.join(filled_tgt_columns)
@@ -3300,11 +3538,11 @@ class TranslationDialog(PyLeadDlg):
 
 
 class PreliminarySettings(PyLeadDlg):
-    class SettingField(QtW.QComboBox):
+    class SettingField(QComboBox):
         def __init__(self):
             super().__init__()
 
-    class SheetField(SettingField, QtW.QComboBox):
+    class SheetField(SettingField, QComboBox):
         # string appearing next to field in settings table
         side_string = ''  # replaced by child classes
         # name under which to store field str
@@ -3425,7 +3663,7 @@ class PreliminarySettings(PyLeadDlg):
                               sheet_name
                 )
 
-    class StartLineField(QtW.QLineEdit, SettingField):
+    class StartLineField(QLineEdit, SettingField):
         # values to default to, in order of priority
         default_strings = '1',
         # string appearing next to field in settings table
@@ -3506,7 +3744,7 @@ class PreliminarySettings(PyLeadDlg):
                             'sheet')
             self.setPlaceholderText('Export start row')
 
-    class CancelButton(QtW.QPushButton):
+    class CancelButton(QPushButton):
         """Cancels out of macro"""
 
         def __init__(self, cancel_func):
@@ -3541,7 +3779,6 @@ class PreliminarySettings(PyLeadDlg):
         for x, field_class in enumerate(field_classes):
             dict_str = field_class.dict_string
             start_str = ''
-            # in the future
             additional_default_values = [values[dict_str]] if \
                 dict_str in values else []
 
@@ -3648,6 +3885,187 @@ class PreliminarySettings(PyLeadDlg):
         return {field.dict_string: field.value for field in self.fields}
 
 
+class LogDlg(PyLeadDlg):
+    """
+    Dialog in which user inputs settings for what logs to check against
+    for duplicates, what group to add logs to, and in which the user
+    can add or remove log files
+    """
+
+    def __init__(self, settings: dict) -> None:
+        super().__init__(settings)
+        self.row_log = RowLog(OS.get_log_dir_path())
+        # create group selector
+        self.group_selector = QComboBox()
+        self.group_selector.addItems(self.row_log.group_names)
+        self.group_selector.setToolTip('Select log group to check')
+        self.group_selector.setCurrentText(settings.get(LOG_GROUP_KEY, ''))
+        # create checkbox for selecting whether or not log is checked
+        # for duplicates.
+        self.read_log_checkbox = QCheckBox()
+        self.read_log_checkbox.setChecked(settings.get(LOG_READ_KEY, False))
+        self.read_log_checkbox.setText('check for duplicates')
+        self.read_log_checkbox.setToolTip(
+            'Look for duplicates in log of previously moved values')
+        # set whether log_group_selector is greyed depending on
+        # checkbox val.
+        # noinspection PyUnresolvedReferences
+        self.read_log_checkbox.stateChanged.connect(self.log_checkbox_event)
+        # create checkbox for selecting whether or not log should be
+        # written to.
+        self.write_log_checkbox = QCheckBox()
+        self.write_log_checkbox.setChecked(settings.get(LOG_WRITE_KEY, False))
+        self.write_log_checkbox.setText('write to log')
+        self.write_log_checkbox.setToolTip(
+            'Write moved values into a log to be checked later for duplicates'
+        )
+        # noinspection PyUnresolvedReferences
+        self.write_log_checkbox.stateChanged.connect(self.log_checkbox_event)
+        # create list of log files which displays currently selected
+        # files in group.
+        self.log_file_list = self.LogFileList(self.row_log)
+        self.log_checkbox_event()  # set group selector + list enabled/disabled
+        # button for adding a new group to row log
+        self.add_group_btn = QPushButton()
+        self.add_group_btn.setText('Add Group')
+        self.add_group_btn.setToolTip('Add new group of log files')
+        # noinspection PyUnresolvedReferences
+        self.add_group_btn.clicked.connect(self.add_group)
+        # button for removing a group from row log
+        self.delete_group_btn = QPushButton()
+        self.delete_group_btn.setText('Delete Group')
+        self.delete_group_btn.setToolTip('Delete group of log files')
+        # noinspection PyUnresolvedReferences
+        self.delete_group_btn.clicked.connect(self.delete_group)
+        self.back_button = BackButton(self.reject)
+        self.accept_button = QPushButton()
+        self.accept_button.setText('Next')
+        self.accept_button.setToolTip('Go to next dialog')
+        # noinspection PyUnresolvedReferences
+        self.accept_button.clicked.connect(self.accept)
+        # create line with accept / back buttons.
+        button_line = QHBoxLayout()
+        button_line.addWidget(self.back_button)
+        button_line.addWidget(self.accept_button)
+        layout = QVBoxLayout()
+        layout.addWidget(self.read_log_checkbox)
+        layout.addWidget(self.write_log_checkbox)
+        layout.addWidget(self.group_selector)
+        layout.addWidget(self.log_file_list)
+        layout.addLayout(button_line)
+        self.setLayout(layout)
+
+    def log_checkbox_event(self):
+        """
+        method called on change to write_log or read_log checkboxes.
+        :return: None
+        """
+        enabled = self.write_log_checkbox.isChecked() and \
+            self.read_log_checkbox.isChecked()
+        self.group_selector.setEnabled(enabled)
+        self.log_file_list.setEnabled(enabled)
+
+    class LogFileList(QListWidget):
+        def __init__(self, row_log: 'RowLog') -> None:
+            super().__init__()
+            self.row_log = row_log
+            self._group_name = None
+
+        @property
+        def group_name(self) -> str:
+            return self._group_name
+
+        @group_name.setter
+        def group_name(self, group_name: str) -> None:
+            if group_name != self._group_name:
+                self._group_name = group_name
+                self.clear()
+                self.addItems([f for f in self.row_log.file_names(group_name)])
+
+    def add_group(self):
+        """
+        Method called when user clicks new group button
+        :return: None
+        """
+        # get name of group from user
+        # noinspection PyTypeChecker,PyCallByClass,PyArgumentList
+        name, ok = QInputDialog.getText(
+            self,  # parent
+            'New Log Group',  # Title
+            'Enter name of new log group'  # content prompt
+        )
+        # create group
+        if not ok:
+            return
+        try:
+            self.row_log.new_group(name)
+        except OSError:
+            # if group cannot be created, display message
+            failure_dlg = QMessageBox()
+            failure_dlg.setIcon(QMessageBox.Warning)
+            failure_dlg.setWindowTitle('Failed to Create Group')
+            failure_dlg.setText(
+                'Could not create group %s because a directory of that '
+                'name could not be created. Check permissions for the'
+                '%s directory' % (name, self.row_log.path)
+            )
+
+    def delete_group(self):
+        """
+        Remove group and files contained.
+        :return: None
+        """
+        # have user select group to be removed
+        # noinspection PyTypeChecker,PyCallByClass,PyArgumentList
+        name, ok = QInputDialog.getItem(
+            self,  # parent
+            'Delete Log Group',  # title
+            'Select group to be deleted',  # text
+            [f for f in self.row_log.group_names],  # selectable items
+            0,  # starting index
+        )
+        # delete group
+        if not ok:
+            return
+        # get confirmation
+        confirm_dlg = QMessageBox()
+        confirm_dlg.setWindowTitle('Confirm Deletion')
+        confirm_dlg.setText(
+            'Are you sure you wish to delete log group %s' % repr(name)
+        )
+        confirm_dlg.setStandardButtons(
+            QMessageBox.Cancel |
+            QMessageBox.Yes
+        )
+        confirmed = confirm_dlg.exec()
+        if not confirmed:
+            return
+        try:
+            self.row_log.delete_group(name)
+        except OSError:
+            # if group cannot be created, display message
+            failure_dlg = QMessageBox()
+            failure_dlg.setIcon(QMessageBox.Warning)
+            failure_dlg.setWindowTitle('Failed to Delete Group')
+            failure_dlg.setText(
+                'Could not delete group %s because the directory %s or a file'
+                'within it could not be deleted'
+                % (repr(name), repr(os.path.join(self.row_log.path, name)))
+            )
+
+    @property
+    def settings(self) -> dict:
+        """
+        Gets settings dict
+        :return: dict
+        """
+        return {
+            LOG_WRITE_KEY: self.write_log_checkbox.isChecked(),
+            LOG_READ_KEY: self.read_log_checkbox.isChecked(),
+            LOG_GROUP_KEY: self.group_selector.currentText(),
+        }
+
+
 class FinalSettings(PyLeadDlg):
     def __init__(self, settings: dict):
         assert isinstance(settings, dict), \
@@ -3674,7 +4092,7 @@ class FinalSettings(PyLeadDlg):
         self.setLayout(layout)
         self.setWindowTitle(APP_WINDOW_TITLE)
 
-    class ApplyButton(QtW.QPushButton):
+    class ApplyButton(QPushButton):
         def __init__(self, host):
             assert isinstance(host, FinalSettings)
             super().__init__()
@@ -3686,10 +4104,10 @@ class FinalSettings(PyLeadDlg):
             # noinspection PyUnresolvedReferences
             self.clicked.connect(apply)  # not an error
             self.setText('Apply')
-            self.setToolTip('Apply selections & Move cells from source sheet '
+            self.setToolTip('Apply selections & move cells from source sheet '
                             'to target')
 
-    class MenuOption(QtW.QComboBox):
+    class MenuOption(QComboBox):
         options = tuple()  # overridden by child classes
         default_option = ''
         tool_tip = ''
@@ -3734,7 +4152,7 @@ class FinalSettings(PyLeadDlg):
 # SAVE / LOAD dlg
 
 
-class FileDlg(QtW.QDialog):
+class FileDlg(QDialog):
     """
     Superclass for SaveDlg and LoadDlg.
     In this class, the save folder and its contents are found and
@@ -3742,18 +4160,18 @@ class FileDlg(QtW.QDialog):
     """
     title = 'placeholder, replaced by subclasses'
 
-    def __init__(self, parent: QtW.QWidget, saves_dir: str) -> None:
+    def __init__(self, parent: QWidget, saves_dir: str) -> None:
         super().__init__(parent)
         self.setWindowTitle(self.title)
         self.setModal(True)
         self.setFocus()
         assert isinstance(saves_dir, str), 'expected str, got %s' % saves_dir
         self.saves_dir_path = saves_dir
-        if not OS.check_file_path_exists(saves_dir):
+        if not OS.ensure_dir_exists(saves_dir):
             print('%s could not find path %s and failed to create it.' %
                   (self.__class__.__name__, saves_dir))
-            msg = QtW.QMessageBox(
-                QtW.QMessageBox.Information,  # icon
+            msg = QMessageBox(
+                QMessageBox.Information,  # icon
                 'Could not find saved files',  # title
                 'Could not find or create saved translations directory %s'
                 % saves_dir
@@ -3786,25 +4204,24 @@ class SaveTranslationsDlg(FileDlg):
 
     def __init__(
             self,
-            parent: QtW.QWidget,
+            parent: QWidget,
             saves_dir: str
     ) -> None:
         print('Save dialog initialization began')
         super().__init__(parent, saves_dir)
         grid = ExpandingGridLayout()
-        self.file_name_entry_field = QtW.QLineEdit()
+        self.file_name_entry_field = QLineEdit()
         self.file_name_entry_field.setToolTip(
             'Enter name to save translations as')
-        self.accept_button = QtW.QPushButton('Save')
+        self.accept_button = QPushButton('Save')
         # noinspection PyUnresolvedReferences
         self.accept_button.clicked.connect(self.save)  # not an error
-        self.cancel_button = QtW.QPushButton('Cancel')
+        self.cancel_button = QPushButton('Cancel')
         # noinspection PyUnresolvedReferences
         self.cancel_button.clicked.connect(self.reject)  # not an error
         grid.add_row(self.file_name_entry_field)
         grid.add_row(self.accept_button, self.cancel_button)
         self.setLayout(grid)
-        # self.exec()
 
     def save(self):
         """
@@ -3820,14 +4237,14 @@ class SaveTranslationsDlg(FileDlg):
         self.accept()
 
     def confirm_overwrite(self, file_name):
-        reply = QtW.QMessageBox.question(
+        reply = QMessageBox.question(
             self,
             'Overwrite File?',
             'A file named %s already exists, overwrite it?' % file_name,
-            QtW.QMessageBox.Yes | QtW.QMessageBox.Cancel,
-            QtW.QMessageBox.Cancel
+            QMessageBox.Yes | QMessageBox.Cancel,
+            QMessageBox.Cancel
         )
-        return reply == QtW.QMessageBox.Yes
+        return reply == QMessageBox.Yes
 
 
 class LoadTranslationsDlg(FileDlg):
@@ -3836,17 +4253,17 @@ class LoadTranslationsDlg(FileDlg):
     """
     title = 'Load Saved Movements'
 
-    def __init__(self, parent: QtW.QWidget, saves_dir: str) -> None:
+    def __init__(self, parent: QWidget, saves_dir: str) -> None:
         print('Load Translations Dialog initialization began')
         super().__init__(parent, saves_dir)
         grid = ExpandingGridLayout()
-        self.file_selection_field = QtW.QComboBox()
+        self.file_selection_field = QComboBox()
         self.populate_file_selection_field()
         self.file_selection_field.setToolTip('Select save to load')
         self.file_selection_field.setCurrentText('Select save')
-        self.delete_button = QtW.QPushButton('Delete Save')
-        self.cancel_button = QtW.QPushButton('Cancel')
-        self.accept_button = QtW.QPushButton('Load')
+        self.delete_button = QPushButton('Delete Save')
+        self.cancel_button = QPushButton('Cancel')
+        self.accept_button = QPushButton('Load')
         # noinspection PyUnresolvedReferences
         self.delete_button.clicked.connect(self.delete)
         # noinspection PyUnresolvedReferences
@@ -3856,7 +4273,6 @@ class LoadTranslationsDlg(FileDlg):
         grid.add_row(self.file_selection_field, self.delete_button)
         grid.add_row(self.cancel_button, self.accept_button)
         self.setLayout(grid)
-        # self.exec()
 
     def populate_file_selection_field(self):
         """
@@ -3879,7 +4295,7 @@ class LoadTranslationsDlg(FileDlg):
         # then delete file
         file_name = self.file_selection_field.currentText()
         if file_name == '':
-            return
+            return False
         file_path = os.path.join(
             OS.get_translations_save_dir_path(),
             file_name) + SERIALIZED_OBJ_SUFFIX
@@ -3890,8 +4306,8 @@ class LoadTranslationsDlg(FileDlg):
         except IOError:
             print('could not delete file %s' % file_path)
             print(sys.exc_info())
-            msg = QtW.QMessageBox(
-                QtW.QMessageBox.Information,  # icon
+            msg = QMessageBox(
+                QMessageBox.Information,  # icon
                 'Delete Failed',  # title
                 'Could not delete file %s' % file_path,  # body
             )
@@ -3924,8 +4340,8 @@ class LoadTranslationsDlg(FileDlg):
         except IOError:
             print('Could not load from file path: %s' % file_path)
             print(sys.exc_info())
-            msg = QtW.QMessageBox(
-                QtW.QMessageBox.Information,  # icon
+            msg = QMessageBox(
+                QMessageBox.Information,  # icon
                 'Loading Failed',  # title
                 'Could not load column translations from file',  # msg
             )
@@ -3934,7 +4350,7 @@ class LoadTranslationsDlg(FileDlg):
             return []
 
 
-class InfoMessage(QtW.QMessageBox):
+class InfoMessage(QMessageBox):
     """
     Displays simple information dialogue with title, main message,
     and secondary message beneath that.
@@ -3946,18 +4362,18 @@ class InfoMessage(QtW.QMessageBox):
             assert isinstance(item, str), \
                 'expected str, got: %s, (%s)' % (item, item.__class__.__name__)
         super().__init__(parent)
-        self.setIcon(QtW.QMessageBox.Information)
+        self.setIcon(QMessageBox.Information)
         self.setWindowTitle(title)
         self.setText(main)
         if secondary:
             self.setInformativeText(secondary)
-        self.setStandardButtons(QtW.QMessageBox.Ok)
+        self.setStandardButtons(QMessageBox.Ok)
         if detail is not '':
             self.setDetailedText(detail)
         self.exec()
 
 
-class ConfirmDialog(QtW.QMessageBox):
+class ConfirmDialog(QMessageBox):
     """
     Dialog for user to accept or cancel
     """
@@ -3969,11 +4385,11 @@ class ConfirmDialog(QtW.QMessageBox):
         self.setText(main)
         if secondary:
             self.setInformativeText(secondary)
-        self.setStandardButtons(QtW.QMessageBox.Ok | QtW.QMessageBox.Cancel)
-        self.setDefaultButton(QtW.QMessageBox.Ok)
+        self.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
+        self.setDefaultButton(QMessageBox.Ok)
 
 
-class OkButton(QtW.QPushButton):
+class OkButton(QPushButton):
     """ calls passed function when clicked by user."""
 
     def __init__(self, ok_function):
@@ -3984,7 +4400,7 @@ class OkButton(QtW.QPushButton):
         self.show()
 
 
-class BackButton(QtW.QPushButton):
+class BackButton(QPushButton):
     def __init__(self, back_function):
         super().__init__('Back')
         self.setToolTip('Go to last page')
@@ -3993,7 +4409,7 @@ class BackButton(QtW.QPushButton):
         self.show()
 
 
-class ExpandingGridLayout(QtW.QGridLayout):
+class ExpandingGridLayout(QGridLayout):
     """
     Grid layout that can be simply expanded
     """
@@ -4010,7 +4426,7 @@ class ExpandingGridLayout(QtW.QGridLayout):
         for x, item in enumerate(items):
             # convert string to label
             if isinstance(item, str):
-                item = QtW.QLabel(item)
+                item = QLabel(item)
             self.addWidget(item, y, x)
 
 
@@ -4070,7 +4486,7 @@ class OS:
     def get_translations_save_dir_path() -> str:
         """
         Gets path to folder where translations are saved.
-        :return:
+        :return: str
         """
         return os.path.join(
             OS.get_app_data_path(),
@@ -4078,7 +4494,18 @@ class OS:
         )
 
     @staticmethod
-    def check_file_path_exists(file_path: str) -> bool:
+    def get_log_dir_path() -> str:
+        """
+        Gets path to dir where logs are stored.
+        :return: str
+        """
+        return os.path.join(
+            OS.get_app_data_path(),
+            LOG_DIR_NAME
+        )
+
+    @staticmethod
+    def ensure_dir_exists(file_path: str) -> bool:
         """
         Checks that file path exists, creates it if it does not,
         and returns bool of whether file path now exists (
@@ -4088,10 +4515,15 @@ class OS:
         """
         if not os.path.exists(file_path):
             print('path %s does not exist, creating it' % file_path)
+            # get higher level path, check if that exists
+            higher_dir = os.path.join(*os.path.split(file_path)[:-1])
+            if not os.path.exists(higher_dir):
+                OS.ensure_dir_exists(higher_dir)
             try:
                 os.mkdir(file_path)
-            except OSError:
+            except OSError as e:
                 print(sys.exc_info())
+                print(e.strerror)
                 return False
         return True
 
@@ -4142,7 +4574,7 @@ class Settings(dict):
         """
         settings_dir = os.path.dirname(self.file_path)
         print('checking settings dir \'%s\' exists' % settings_dir)
-        return OS.check_file_path_exists(settings_dir)
+        return OS.ensure_dir_exists(settings_dir)
 
     @property
     def saved_settings(self) -> dict:
@@ -4252,6 +4684,11 @@ class Associations:
                 yield assoc[1]
 
     def load_file_path(self, file_path: str):
+        """
+        Loads associations from file.
+        :param file_path: str path
+        :return: None
+        """
         if not isinstance(file_path, str):
             raise TypeError('file_path must be str. Got: %s' % file_path)
         assoc_deque = None
@@ -4285,7 +4722,7 @@ class Associations:
             raise TypeError('file_path should be a str. Got: %s' % file_path)
         try:
             with open(file_path, 'wb') as assoc_file:
-                pickle.dump(self.assoc_deque, assoc_file)
+                pickle.dump(self._assoc_deque, assoc_file)
         except IOError:
             print('could not save associations to file')
             print('\n'.join([str(i) for i in sys.exc_info()]))
@@ -4352,15 +4789,6 @@ class Associations:
     def is_empty(self) -> bool:
         return len(self._assoc_deque) == 0
 
-    @property
-    def assoc_deque(self):
-        """
-        Yields associations deck
-        Written to be used when cleaning AssociationMap of old values.
-        :return: deque
-        """
-        return self._assoc_deque
-
 
 class RowLog:
     """
@@ -4373,35 +4801,189 @@ class RowLog:
     log_file_ext = '.csv'
 
     def __init__(self, path: str):
-        if not os.path.exists(path):
-            pass  # todo: try to make path
+        OS.ensure_dir_exists(path)
+        assert os.path.exists(path)
         self.path = path
-        self._logs = {}
+        self._groups = self._find_groups()
 
-    def find_duplicates(self, value, column, exempt_hash=None):
-
-    def make_log(self, src_sheet: 'Sheet'):
+    def file_names(self, group_name):
         """
-        Creates a log file from a source sheet
-        :param src_sheet:
+        Gets file names in the group identified by passed group name.
+        :param group_name: str
+        :return: Generator[str]
+        """
+        for file_name in self._groups[group_name].file_names:
+            yield file_name
+
+    def _find_groups(self):
+        """
+        Looks through self.path for sub-directories,
+        and adds them as groups.
+        :return: dict
+        """
+        return {
+            item_name: RowLog.Group(os.path.join(self.path, item_name)) for
+            item_name in os.listdir(self.path) if
+            os.path.isdir(os.path.join(self.path, item_name))
+        }
+
+    def find_duplicates(
+            self,
+            value: int or float or str,
+            group: str,
+            column_name: int or float or str
+            ):
+        """
+        Finds duplicates of passed value in columns of passed name.
+        Returns generator of tuple[log file name, row index]
+        :param value: int, float or str
+        :param group: str
+        :param column_name: int, float, or str
+        :return: Generator[tuple[log file name str, row index]]
+        """
+        return self._groups[group].find_duplicates(value, column_name)
+
+    def new_group(self, name: str) -> None:
+        """
+        Creates a new group with passed name
+        :param name: str
         :return: None
         """
+        self._groups[name] = RowLog.Group(os.path.join(self.path, name))
+
+    def delete_group(self, name: str) -> None:
+        """
+        Deletes group and contained files
+        :param name: str
+        :return: None
+        """
+        group = self._groups[name]
+        [os.remove(os.path.join(group.path, f)) for f in group.file_names]
+        os.rmdir(group.path)
+        del self._groups[name]
+
+    def make_log(self, group_name: str, sheet: 'Sheet'):
+        """
+        Creates a log file from a source sheet
+        :param group_name: str name of group to add sheet to
+        :param sheet: Sheet to log
+        :return: None
+        """
+        self._groups[group_name].add_file(sheet)
+
+    @property
+    def group_names(self):
+        """
+        Yields each group name in self
+        :return: Generator[str]
+        """
+        for group_name in self._groups:
+            assert isinstance(group_name, str)
+            yield group_name
+
+    class Group:
+        """
+        Class representing a grouping of source leads
+        """
+        def __init__(self, path: str) -> None:
+            if os.path.exists(path) and not os.path.isdir(path):
+                raise ValueError('Path passed exists and is not a dir')
+            self.path = path
+            if not OS.ensure_dir_exists(path):  # ensure .path is a dir
+                raise IOError('path %s does not exist and could not be'
+                              'created.' % self.path)
+            self.log_files = self._find_log_files()
+
+        def _find_log_files(self) -> dict:
+            """
+            Returns dict of log files, with file name as key,
+            RowLogFile as value.
+            :return: dict[str:RowLogFile]
+            """
+            return {
+                filename:
+                    RowLog.RowLogFile(os.path.join(self.path, filename)) for
+                filename in os.listdir(self.path) if
+                filename.endswith(RowLog.log_file_ext)
+            }
+
+        def find_duplicates(
+                self,
+                value: int or float or str,
+                column_name: int or float or str
+                ):
+            """
+            Finds duplicates. Yields generator of
+            tuple[file name str, row index int]
+            :param value: int, float, or str
+            :param column_name: int, float, or str
+            :return: Generator[tuple[str, int]]
+            """
+            for log_file in self.log_files.values():
+                for index in log_file.find_duplicates(value, column_name):
+                    yield log_file.name, index
+
+        def add_file(self, sheet: 'Sheet'):
+            """
+            Creates a RowLogFile in this group.
+            :param sheet: Sheet
+            :return: None
+            """
+            log = RowLog.RowLogFile(self.path, sheet)
+            self.log_files[log.name] = log
+
+        @property
+        def name(self):
+            if self.path.endswith('/'):
+                path = self.path[:-1]
+            else:
+                path = self.path
+            return os.path.basename(path)
+
+        @property
+        def file_names(self):
+            """
+            Gets generator of log files in this group
+            :return: Generator[str]
+            """
+            for log_name in self.log_files:
+                yield log_name
 
     class RowLogFile:
         """
         Class operating on a single log
         """
+        prefix_dict = {
+            int: 'int:',
+            float: 'flt:',
+            str: 'str:',
+        }
+
+        type_dict = {v: k for k, v in prefix_dict.items()}  # inverted prefix d
+
+        none_str = 'None'
+
         def __init__(self, path: str, sheet: 'Sheet'=None) -> None:
             """
             Creates a new RowLogFile at/from passed path.
             If a sheet is passed to constructor,
             creates a new log at path. If no sheet is passed,
             attempts to read a log from file at path.
+            When creating a new log file, if passed path str is a dir,
+            new file is created within that dir. If path is not a dir,
+            creates a file with that name.
             :param path: str
             :param sheet: sheet
             """
-            self.path = path
-            self.columns = {}  # dictionary of column value sets
+            if os.path.isdir(path):
+                # if passed path is a dir, create a path for self within it
+                assert sheet is not None  # sheet is needed for name generation
+                self.path = os.path.join(path, self._generate_name())
+            else:  # if passed path is a file/doesn't exist,
+                # that will be used as the path for this log file.
+                self.path = path
+            self._rows = None  # list of rows read from this file.
+            self._col_values = {}  # dictionary of column value sets
             if sheet:
                 self.write(sheet)
             else:
@@ -4409,7 +4991,9 @@ class RowLog:
 
         def write(self, sheet: 'Sheet'):
             """
-            Writes sheet info to file
+            Writes sheet info to file.
+            If path is a dir, writes to a file within that dir,
+            otherwise, creates/writes to a file located at path.
             :param sheet: Sheet
             :return: None
             """
@@ -4418,16 +5002,144 @@ class RowLog:
                     f, sheet.columns.names,  # generator
                     restval=None,
                     extrasaction='raise')  # raise ValueError on unexpected key
-                for i in range(sheet.)
+                writer.writerows([self._format_dict(row.to_dict()) for
+                                  row in sheet.table_rows])
 
-
-
-        def read(self, path: str=None):
+        def read(self, path: str=None) -> list:
             """
             Reads columns in from file.
             :param path: str path to file to red
-            :return: None
+            :return: list[dict]
             """
+            path = path if path else self.path
+            with open(path, 'r') as f:
+                reader = csv.DictReader(f)
+                # parse each row in reader from str to original types & return.
+                return [self._parse_dict(row) for row in reader]
+
+        def find_duplicates(
+                self,
+                value: int or float or str,
+                column_name: int or float or str
+                ):
+            """
+            Yields duplicates in this row file
+            :param value: int, float, or str
+            :param column_name: int, float or str
+            :return: Generator[str, int]
+            """
+            try:
+                for row_index in self.column_values(column_name)[value]:
+                    yield row_index
+            except KeyError:
+                return
+
+        @classmethod
+        def _format_dict(cls, d: dict) -> dict:
+            """
+            Returns a new dictionary that is a formatted version of
+            passed dict.
+            :param d: dict
+            :return: new dict
+            """
+            assert isinstance(d, dict)
+            new_d = {}
+            for k, v in d.items():
+                new_d[k] = cls._format_val(v)
+            return new_d
+
+        @staticmethod
+        def _format_val(v: int or float or str or None):
+            """
+            Formats value to be stored in csv file
+            :param v: int, float, str, or None
+            :return: str
+            """
+            if v is None:
+                return RowLog.RowLogFile.none_str
+            else:
+                return RowLog.RowLogFile.prefix_dict[v.__class__] + str(v)
+
+        @classmethod
+        def _parse_dict(cls, d: dict) -> dict:
+            """
+            Parses dictionary and returns a new dictionary with
+            those values.
+            :param d: dict
+            :return: new dict
+            """
+            assert isinstance(d, dict)
+            new_d = {}
+            for k, v in d.items():
+                new_d[k] = cls._parse_val(v)
+            return new_d
+
+        @staticmethod
+        def _parse_val(s: str) -> str or int or float or None:
+            """
+            Parses str for value stored by format_val method
+            :param s:
+            :return: str, int, float, or None
+            """
+            if not isinstance(s, str):
+                raise ValueError('Expected str, got %s' % repr(s))
+            prefix = s[:3]
+            if prefix == RowLog.RowLogFile.none_str:
+                return None
+            else:
+                # try to convert string value to value
+                return RowLog.RowLogFile.type_dict[prefix](s)
+
+        def column_values(self, col_name: int or float or str or None) -> dict:
+            """
+            Returns dict for a passed column name.
+            :param col_name: int, float, str, or None
+            :return: set
+            """
+            # col_values dict is lazily populated
+            try:  # try to get {value: row indices} dict from col_values dict.
+                d = self._col_values[col_name]
+            except KeyError:  # if col_name key has not been entered, do that.
+                d = self._col_values[col_name] = {}
+                for row_i, row in enumerate(self.rows):  # for each row:
+                    # get relevant value for col.
+                    # this is accessed here to prevent a possible key error
+                    # from silently breaking and being caught below.
+                    v = row[col_name]
+                    try:  # try to add row index to set of indices with value
+                        d[v].add(row_i)
+                    except KeyError:  # if key does not exist, create entry
+                        d[v] = {row_i}
+            return d
+
+        @property
+        def rows(self):
+            """
+            Gets rows from file.
+            :return: list[dict]
+            """
+            if not self._rows:
+                self._rows = self.read()  # read file at path
+            return self._rows
+
+        def _generate_name(self) -> str:
+            return datetime.datetime.now().isoformat()
+
+        @property
+        def name(self) -> str:
+            return os.path.basename(self.path)
+
+        def __repr__(self) -> str:
+            return 'RowLogFile[%s]' % self.path
+
+        def display_name(self) -> str:
+            """
+            Gets user-friendly string to be used in gui.
+            At this time, returns base name of log path without extension
+            :return: str
+            """
+            return 'Log from: %s' % \
+                   os.path.splitext(os.path.basename(self.path))[0]
 
 
 class Color:
@@ -4491,7 +5203,7 @@ def lead_app():
     global model
     global app
     model = Office.get_model()
-    app = QtW.QApplication([''])  # expects list of strings.
+    app = QApplication([''])  # expects list of strings.
 
     # get settings
     settings = Settings(OS.get_app_data_path())
@@ -4502,6 +5214,7 @@ def lead_app():
     dialog_classes = [
         PreliminarySettings,
         TranslationDialog,
+        LogDlg,
         FinalSettings
     ]
     while run:
@@ -4523,7 +5236,7 @@ def lead_app():
     if run:  # if run is still ongoing
         src_sheet = model[settings[SOURCE_SHEET_KEY]]
         tgt_sheet = model[settings[TARGET_SHEET_KEY]]
-        src_sheet.exclusive_editor = True  # nothing should concurrently edit
+        src_sheet.exclusive_editor = True  # nothing should concurrently edit;
         tgt_sheet.exclusive_editor = True  # this allows caching to occur
         translation = Translation(  # create translation
             source_sheet=src_sheet,
@@ -4534,7 +5247,10 @@ def lead_app():
             dialog_parent=dlg,  # there's no way for this to be reached
             #  without dlg being assigned.
             duplicate_action=settings[DUPLICATE_ACTION_KEY],
-            whitespace_action=settings[WHITESPACE_ACTION_KEY]
+            whitespace_action=settings[WHITESPACE_ACTION_KEY],
+            read_log=settings[LOG_READ_KEY],
+            write_log=settings[LOG_WRITE_KEY],
+            log_group=settings[LOG_GROUP_KEY],
         )
         translation.commit()  # move cell values
 
