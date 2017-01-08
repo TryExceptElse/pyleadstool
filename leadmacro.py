@@ -701,6 +701,8 @@ class Sheet(WorkBookComponent):
         if the range is expanded.
         The snapshot can be prevented from growing by setting
         frozen_size to True.
+        If a snapshot has already been taken, it is replaced, along
+        with any changes made to it.
         :param width: int
         :param height: int
         :param frozen_size: bool
@@ -711,9 +713,9 @@ class Sheet(WorkBookComponent):
         if width is None:
             width = len(self.reference_row)
         if height == 0 and width > 0:
-            height = 1
+            height = 1  # if width > 0, then a reference row was found
         if width == 0 and height > 0:
-            width = 1
+            width = 1  # if height > 0, then a reference col was found
         self._snapshot = self.Snapshot(self, width, height, frozen_size)
 
     def write_snapshot(self):
@@ -1808,7 +1810,11 @@ class Office:
                             'A1',  # start cell
                             (self._height, self._width)  # end cell
                         ).value
-                    assert values is not None
+                    else:
+                        raise ValueError(
+                            'Snapshot:_get_values: width, height were %s, %s' %
+                            self._width, self._height)
+                    assert values is not None  # just sanity checking
                     return values
 
                 def write(self):

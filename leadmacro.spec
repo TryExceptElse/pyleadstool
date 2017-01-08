@@ -16,14 +16,16 @@ a = Analysis(['leadmacro.py'],
              cipher=block_cipher)
 
 excluded_prefixes = (
-    "scipy",
-    "zmq",
+    "babel"
+    "Cython",
     "matplotlib",
+    "mkl_",
     "numpy",
     "pandas",
-    "mkl_",
-    "Cython",
-    "babel"
+    "scipy",
+    "sphinx"
+    "sqlalchemy"
+    "zmq",
 )
 
 a.binaries = [x for x in a.binaries if not any(
@@ -33,8 +35,8 @@ a.binaries = a.binaries - TOC([
  ('sqlite3.dll', None, None),
  ('tcl85.dll', None, None),
  ('tk85.dll', None, None),
- ('tcl86.dll', None, None),
- ('tk86.dll', None, None),
+ ('tcl86t.dll', None, None),
+ ('tk86t.dll', None, None),
  ('_sqlite3', None, None),
  ('_ssl', None, None),
  ('_tkinter', None, None)])
