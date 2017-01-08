@@ -23,6 +23,7 @@ excluded_prefixes = (
     "numpy",
     "pandas",
     "scipy",
+    "sphinx"
     "sqlalchemy"
     "zmq",
 )
