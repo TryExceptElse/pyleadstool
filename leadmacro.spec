@@ -39,6 +39,9 @@ a.binaries = a.binaries - TOC([
  ('_ssl', None, None),
  ('_tkinter', None, None)])
 
+ # icon
+ a.datas += [('icon-32.png','resources\\icon-32.png','DATA')]
+
 pyz = PYZ(a.pure, a.zipped_data,
              cipher=block_cipher)
 exe = EXE(pyz,
