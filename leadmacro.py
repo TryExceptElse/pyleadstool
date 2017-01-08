@@ -39,10 +39,6 @@ TODO:
         *   XML table storing sheets/values
         *   Folder containing a file for each used input sheet,
                 storing key values
-*   Increase speed at which values in Excel are accessed
-    *   Access whole lines of data at a time, rather than individual cells
-        *   May be faster / easier to implement
-    *   Disable cell display update on value change during Translation commit
 *   Add message to user, asking them not to edit source sheet
 
 Contents:
@@ -257,7 +253,7 @@ class WorkBookComponent:
             # if caching is not possible, just call getter
             # to do this, find sheet and check if exclusive_editor is True
             if not o.sheet.exclusive_editor:
-                return getter(*args, **kwargs)
+                return getter(o, *args, **kwargs)
             # get cache
             try:
                 cache = o.__value_cache
@@ -382,6 +378,10 @@ class Sheet(WorkBookComponent):
                 reference_column_index=ref_col_index,
                 reference_row_index=ref_row_index
             )
+
+    @staticmethod
+    def key(i7e_sheet):
+        return i7e_sheet
 
     def get_column(
             self,
@@ -710,6 +710,10 @@ class Sheet(WorkBookComponent):
             height = len(self.reference_column)
         if width is None:
             width = len(self.reference_row)
+        if height == 0 and width > 0:
+            height = 1
+        if width == 0 and height > 0:
+            width = 1
         self._snapshot = self.Snapshot(self, width, height, frozen_size)
 
     def write_snapshot(self):
@@ -1681,14 +1685,14 @@ class Office:
                 if isinstance(item, str) and "::" in item:
                     # split and find book + name
                     book_name, sheet_name = item.split("::")
-                    return Office.XW.Sheet(
+                    return Sheet.factory(
                         self.active_app.books[book_name].sheets[sheet_name]
                     )
                 else:
                     # otherwise just look everywhere
                     for sheet in self._xw_sheets:
                         if sheet.name == item:
-                            return Office.XW.Sheet(
+                            return Sheet.factory(
                                 sheet
                             )
 
@@ -1720,7 +1724,7 @@ class Office:
                 :return: Sheet
                 """
                 for xw_sheet in self._xw_sheets:
-                    yield Office.XW.Sheet(xw_sheet)
+                    yield Sheet.factory(xw_sheet)
 
             @property
             def sheet_names(self):
@@ -1738,14 +1742,21 @@ class Office:
             """
             def __init__(
                     self,
-                    xw_sheet,
+                    i7e_sheet,
                     reference_row_index=0,
                     reference_column_index=0
             ) -> None:
                 super().__init__(
-                    i7e_sheet=xw_sheet,
+                    i7e_sheet=i7e_sheet,
                     reference_column_index=reference_column_index,
                     reference_row_index=reference_row_index
+                )
+
+            @staticmethod
+            def key(i7e_sheet):
+                return 'Sheet[%s::%s]' % (
+                    i7e_sheet.name,
+                    i7e_sheet.book.fullname,
                 )
 
             @property
@@ -1778,22 +1789,27 @@ class Office:
                 def _get_values(self) -> list:
                     assert isinstance(self._width, int)
                     assert isinstance(self._height, int)
-                    if self._width == 1 and self._height == 1:
-                        return [[self._sheet.i7e_sheet.range('A1').value]]
+                    assert (self._width == 0) == (self._height == 0)
+                    if self._width == 0 and self._height == 0:
+                        values = [[]]
+                    elif self._width == 1 and self._height == 1:
+                        values = [[self._sheet.i7e_sheet.range('A1').value]]
                     elif self._height == 1:
-                        return [self._sheet.i7e_sheet.range(
+                        values = [self._sheet.i7e_sheet.range(
                             'A1', (1, self._width)
                         ).value]
                     elif self._width == 1:
-                        return [[value] for value in
-                                self._sheet.i7e_sheet.range(
+                        values = [[value] for value in
+                                  self._sheet.i7e_sheet.range(
                                   'A1', (self._height, 1)
-                                )]
+                                  )]
                     elif self._width > 1 and self._height > 1:
-                        return self._sheet.i7e_sheet.range(
+                        values = self._sheet.i7e_sheet.range(
                             'A1',  # start cell
                             (self._height, self._width)  # end cell
                         ).value
+                    assert values is not None
+                    return values
 
                 def write(self):
                     self._sheet.i7e_sheet.range('A1').value = self._values
@@ -2009,12 +2025,12 @@ class Office:
 
             def __init__(
                     self,
-                    uno_sheet,
+                    i7e_sheet,
                     reference_row_index=0,
                     reference_column_index=0
             ) -> None:
                 super().__init__(
-                    i7e_sheet=uno_sheet,
+                    i7e_sheet=i7e_sheet,
                     reference_row_index=reference_row_index,
                     reference_column_index=reference_column_index
                 )
@@ -3106,6 +3122,7 @@ class PyLeadDlg(QDialog):
     quit_flag = False
 
     def __init__(self, settings: dict) -> None:
+        # noinspection PyArgumentList
         super().__init__()
         self._initial_settings = settings
 
@@ -3904,10 +3921,10 @@ class LogDlg(PyLeadDlg):
         )
         # noinspection PyUnresolvedReferences
         self.write_log_checkbox.stateChanged.connect(self.log_checkbox_event)
-        self.log_checkbox_event()  # set group selector + list enabled/disabled
         # create list of log files which displays currently selected
         # files in group.
         self.log_file_list = self.LogFileList(self.row_log)
+        self.log_checkbox_event()  # set group selector + list enabled/disabled
         # button for adding a new group to row log
         self.add_group_btn = QPushButton()
         self.add_group_btn.setText('Add Group')
@@ -3935,6 +3952,7 @@ class LogDlg(PyLeadDlg):
         layout.addWidget(self.write_log_checkbox)
         layout.addWidget(self.group_selector)
         layout.addWidget(self.log_file_list)
+        layout.addLayout(button_line)
         self.setLayout(layout)
 
     def log_checkbox_event(self):
