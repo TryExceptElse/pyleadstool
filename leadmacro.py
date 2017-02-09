@@ -871,7 +871,10 @@ class Sheet(WorkBookComponent):
 
         def write(self):
             """
-            Commits values in snapshot to sheet in a single bulk write
+            Commits values in snapshot to sheet in a single bulk write.
+
+            Both those unchanged from when the snapshot was
+            taken, and those added in edits since are included.
             :return: None
             """
             raise NotImplementedError
@@ -1787,6 +1790,10 @@ class Office:
                 """
 
                 def _get_values(self) -> list:
+                    """
+                    Gets all values in snapshot area.
+                    :return:
+                    """
                     assert isinstance(self._width, int)
                     assert isinstance(self._height, int)
                     assert (self._width == 0) == (self._height == 0)
@@ -1812,6 +1819,20 @@ class Office:
                     return values
 
                 def write(self):
+                    """
+                    Writes values stored in snapshot to sheet.
+
+                    This is much faster than updating each value
+                    in the sheet individually, and takes little
+                    longer than changing a single cell value, so that
+                    overall write time can be improved hundreds of
+                    times when compared to changing hundreds of cells
+                    individually.
+
+                    Both those unchanged from when the snapshot was
+                    taken, and those added in edits since are included.
+                    :return:
+                    """
                     self._sheet.i7e_sheet.range('A1').value = self._values
 
         class Line(Line):
@@ -2295,6 +2316,8 @@ class Translation:
         self.row_log = RowLog(OS.get_log_dir_path()) if \
             read_log or write_log else None
         self._source_sheet.take_snapshot()  # take snapshot of source sheet
+        # this stores the spreadsheet's cell values as they appear at this
+        # moment in memory and allows vastly faster accessing of data.
         # create column translations from passed list of dicts
         # in settings
         self._column_translations = []
@@ -3168,6 +3191,8 @@ class TranslationDialog(PyLeadDlg):
         target_sheet = model[tgt_sheet_name]
         assert isinstance(source_sheet, Sheet)
         assert isinstance(target_sheet, Sheet)
+        source_sheet.take_snapshot()  # snapshot sheets to speed up parsing
+        target_sheet.take_snapshot()
         source_sheet.reference_row_index = source_start - 1
         target_sheet.reference_row_index = target_start - 1
         # get integer from string indices if needed.
@@ -3813,6 +3838,7 @@ class PreliminarySettings(PyLeadDlg):
             return
         if not self.check_sheets_have_column_headers():
             return
+        print('finished prelim dlg')
         self.accept()
 
     def check_sheets_are_not_identical(self):
@@ -3820,6 +3846,7 @@ class PreliminarySettings(PyLeadDlg):
         Checks that source and target are different sheets
         :return: bool
         """
+        print('checking selected sheets are not identical')
         if self.settings[SOURCE_SHEET_KEY] == self.settings[TARGET_SHEET_KEY]:
             InfoMessage(
                 parent=self,
@@ -3837,6 +3864,7 @@ class PreliminarySettings(PyLeadDlg):
         passed row indices.
         :return: bool 
         """
+        print('checking selected sheets have column headers')
         src_sheet_name = self.settings[SOURCE_SHEET_KEY]
         src_header_i = self.settings[SOURCE_START_KEY] - 1
         tgt_sheet_name = self.settings[TARGET_SHEET_KEY]
@@ -3857,11 +3885,14 @@ class PreliminarySettings(PyLeadDlg):
         :param header_index: 
         :return: 
         """
+        print('checking {} has column headers at index {}'
+              .format(sheet_name, header_index))
         assert isinstance(sheet_name, str)
         assert isinstance(header_index, int)
         sheet = model[sheet_name]
         assert isinstance(sheet, Sheet)
         sheet.reference_row_index = header_index
+        sheet.take_snapshot()  # speed things up
         if len([
             col.name for col in sheet.columns
             if col.name is not None
@@ -3874,6 +3905,7 @@ class PreliminarySettings(PyLeadDlg):
                           'index %s (0-based).' % (repr(sheet_name),
                                                    header_index))
             return False
+        print('done checking {} headers'.format(sheet_name))
         return True
 
     @property
