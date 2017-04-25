@@ -5197,6 +5197,7 @@ def lead_app():
     # flow:
     # preliminary settings ->
     # association table ->
+    # set campaign info ->
     # final settings / info
     # push data to target
     # close / display exit message
