@@ -1,0 +1,17 @@
+DB:
+    campaign
+        name
+        settings (json)
+        checked_translations (list)
+    translation_events
+        date
+        time
+        src_wb_name (optional)
+        src_sheet_name (optional)
+        tgt_wb_name (optional)
+        tgt_sheet_name (optional)
+        translated_entries (json)
+    cached_hash_sets
+            (serialized sets for a specific field of a translation event):
+        UUID (key)
+        serialized / pickled set
