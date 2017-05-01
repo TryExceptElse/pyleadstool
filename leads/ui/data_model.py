@@ -43,9 +43,17 @@ class SheetListModel(QStandardItemModel):
             # this will clear items, so it must be set first.
             self._has_connection = True
             assert isinstance(self.office_model, Model)
-            for sheet_name in self.office_model.sheet_names:
-                self.sheet_names.add(sheet_name)
-                self.appendRow(self.SheetItem(sheet_name))
+            sheets_in_model = set(self.office_model.sheet_names)
+            # remove old sheet items
+            for row in self.children():
+                assert isinstance(row, self.SheetItem)
+                if row not in sheets_in_model:
+                    self.removeRow(row.index())
+            # add new sheet items
+            for sheet_name in sheets_in_model:
+                if sheet_name not in self.sheet_names:
+                    self.sheet_names.add(sheet_name)
+                    self.appendRow(self.SheetItem(sheet_name))
             self.sort(1)  # todo
         else:
             # if no way to connect to an office instance can be found,
