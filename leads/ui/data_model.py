@@ -1,5 +1,5 @@
 """
-Imports
+
 """
 from threading import Thread
 from time import sleep
@@ -8,7 +8,7 @@ from PyQt5.Qt import QStandardItemModel, QStandardItem
 from leadmacro import Model
 
 
-UPDATE_CHECK_RATE = 15  # Hz
+UPDATE_CHECK_RATE = 1  # Hz
 
 
 class SheetListModel(QStandardItemModel):

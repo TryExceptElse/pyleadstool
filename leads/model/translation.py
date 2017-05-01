@@ -25,7 +25,6 @@ class Translation:
 
     def __init__(
             self,
-            dialog_parent,
             source_sheet: Sheet,
             target_sheet: Sheet,
             column_translations=None,
@@ -33,9 +32,6 @@ class Translation:
             target_start_row=1,
             whitespace_action=WHITESPACE_HIGHLIGHT_STR,
             duplicate_action=DUPLICATE_HIGHLIGHT_STR,
-            read_log: bool=False,
-            write_log: bool=False,
-            log_group: str=None,
     ):
 
         if not isinstance(source_sheet, Sheet):
@@ -44,7 +40,6 @@ class Translation:
         if not isinstance(target_sheet, Sheet):
             raise TypeError('Target sheet should be a Sheet, got: %s'
                             % repr(source_sheet))
-        self._dialog_parent = dialog_parent
         self._source_sheet = source_sheet
         self._target_sheet = target_sheet
         self._row_deletions = set()
@@ -54,11 +49,6 @@ class Translation:
         self._target_start_row = target_start_row
         self._whitespace_action = whitespace_action
         self._duplicate_action = duplicate_action
-        self.read_log = read_log
-        self.write_log = write_log
-        self.log_group = log_group
-        self.row_log = RowLog(OS.get_log_dir_path()) if \
-            read_log or write_log else None
         self._source_sheet.take_snapshot()  # take snapshot of source sheet
         # create column translations from passed list of dicts
         # in settings
@@ -247,15 +237,22 @@ class Translation:
             target_column_name: int, float, or str
             kwargs: other kwargs will be passed to created
         ColumnTranslation.
-        :param args: ColumnTranslation kwargs dictionaries
+        :param args: ColumnTranslation kwargs dictionaries or pre-made
+                ColumnTranslations
         :param kwargs: kwargs for a single ColumnTranslation.
         """
         # check that passed args are all dictionaries
-        assert all([isinstance(item, dict) for item in args]), \
-            'passed args must be dictionaries of kwargs for ' \
-            'ColumnTranslation. Instead got %s' % args
+        assert all([isinstance(item, dict) for item in args]) or\
+            all([isinstance(item, ColumnTranslation) for item in args]), \
+            'passed args must be ColumnTranslations or else ' \
+            'dictionaries of kwargs for ' \
+            'ColumnTranslations. Instead got %s' % args
         # for each passed kwargs dictionary,
         # including that passed to this method;
+        if isinstance(args[0], ColumnTranslation):
+            for column_translation in args:
+                self._column_translations.append(column_translation)
+            return
         for kwargs_dict in args + (kwargs,) if kwargs else args:
             # ensure correct kwargs were passed.
             # Exactly one source column identifier should have been
