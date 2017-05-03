@@ -1,8 +1,9 @@
 """
 Module holding Translation class and associated methods and classes
 """
+from datetime import datetime
 
-from .sheets import Sheet, Column, Cell, DEFAULT_COLOR
+from .sheets import Sheet, Column, Cell, DEFAULT_COLOR, NONE_STRING
 from .colors import DUPLICATE_CELL_COLOR, DUPLICATE_ROW_COLOR, \
         WHITESPACE_CELL_COLOR, WHITESPACE_ROW_COLOR
 
@@ -13,6 +14,17 @@ WHITESPACE_IGNORE_STR = 'Do nothing'
 DUPLICATE_REMOVE_ROW_STR = 'Remove row'
 DUPLICATE_HIGHLIGHT_STR = 'Highlight'
 DUPLICATE_IGNORE_STR = 'Do nothing'
+
+SOURCE_COLUMN_NAME_KEY = 'source_column_name'
+TARGET_COLUMN_NAME_KEY = 'target_column_name'
+SOURCE_COLUMN_INDEX_KEY = 'source_column_i'
+TARGET_COLUMN_INDEX_KEY = 'target_column_i'
+
+# json log keys
+LOG_DATE_TIME_KEY = 'datetime'
+LOG_TGT_COLUMNS_KEY = 'tgt_col'
+LOG_TGT_SHEET_NAME = 'tgt_sheet_name'
+LOG_SRC_SHEET_NAME = 'src_sheet_name'
 
 
 class Translation:
@@ -32,6 +44,8 @@ class Translation:
             target_start_row=1,
             whitespace_action=WHITESPACE_HIGHLIGHT_STR,
             duplicate_action=DUPLICATE_HIGHLIGHT_STR,
+            overwrite_confirm_func=None,
+            record_to_read=None,
     ):
 
         if not isinstance(source_sheet, Sheet):
@@ -49,7 +63,10 @@ class Translation:
         self._target_start_row = target_start_row
         self._whitespace_action = whitespace_action
         self._duplicate_action = duplicate_action
+        self._overwrite_confirm_func = overwrite_confirm_func
+        self.reading_log = record_to_read
         self._source_sheet.take_snapshot()  # take snapshot of source sheet
+        self._commit_datetime = None
         # create column translations from passed list of dicts
         # in settings
         self._column_translations = []
@@ -63,33 +80,32 @@ class Translation:
         self._generate_cell_translations()
         self._source_sheet.discard_snapshot()  # we're done with source sheet
 
-        if self.duplicate_action == DUPLICATE_HIGHLIGHT_STR:
+        if self._duplicate_action == DUPLICATE_HIGHLIGHT_STR:
             self._highlight_translation_rows_with_duplicates()
-        elif self.duplicate_action == DUPLICATE_REMOVE_ROW_STR:
+        elif self._duplicate_action == DUPLICATE_REMOVE_ROW_STR:
             self._remove_translation_rows_with_duplicates()
 
-        if self.whitespace_action == WHITESPACE_HIGHLIGHT_STR:
+        if self._whitespace_action == WHITESPACE_HIGHLIGHT_STR:
             self._highlight_translation_rows_with_whitespace()
-        elif self.whitespace_action == WHITESPACE_REMOVE_STR:
+        elif self._whitespace_action == WHITESPACE_REMOVE_STR:
             self._remove_whitespace_in_translation_rows()
 
     def commit(self):
         print('committing translations')
-        self.target_sheet.take_snapshot()
+        self._target_sheet.take_snapshot()
         self.clear_target()
         self._apply_translation_rows()
-        if self.write_log:  # write log if that setting is set by user.
-            self.row_log.make_log(self.log_group, self.target_sheet)
-        self.target_sheet.write_snapshot()
+        self._target_sheet.write_snapshot()
+        self._commit_datetime = datetime.utcnow()
 
     def _apply_translation_rows(self):
         for y in self.translation_rows:
             t_row = self.translation_rows[y]
             assert isinstance(t_row, TranslationRow)
-            t_row.apply(self.target_sheet, y)
+            t_row.apply(self._target_sheet, y)
 
     def _get_cell_generators(self):
-        for column_translation in self.column_translations:
+        for column_translation in self._column_translations:
             assert isinstance(column_translation, ColumnTranslation)
             self.cell_translation_generators.append(
                 column_translation.get_generator())
@@ -131,7 +147,6 @@ class Translation:
                 WHITESPACE_CELL_COLOR,
                 WHITESPACE_ROW_COLOR,
             )
-        self._whitespace_feedback(whitespace_positions)
 
     def _remove_whitespace_in_translation_rows(self):
         whitespace_positions = list(self.get_whitespace_positions())
@@ -142,7 +157,6 @@ class Translation:
                 cell_t.add_transform(lambda cell: cell.remove_whitespace())
             except KeyError:
                 continue
-        self._whitespace_feedback(whitespace_positions)
 
     def _highlight_translation_rows_with_duplicates(self):
         duplicate_positions = list(self.get_duplicate_positions())
@@ -159,7 +173,6 @@ class Translation:
                 DUPLICATE_CELL_COLOR,
                 DUPLICATE_ROW_COLOR
             )
-        self._duplicates_feedback(duplicate_positions)
 
     def _remove_translation_rows_with_duplicates(self):
         duplicate_positions = list(self.get_duplicate_positions())
@@ -173,7 +186,6 @@ class Translation:
                 if self.translation_rows[y] is row:
                     del self.translation_rows[y]
                     break
-        self._duplicates_feedback(duplicate_positions)
 
     def get_duplicate_positions(self):
         """
@@ -206,15 +218,29 @@ class Translation:
         print('done looking for whitespace')
 
     def _confirm_overwrite(self):
-        reply = QMessageBox.question(
-            self._dialog_parent,
-            'Overwrite Cells?',
-            'Cells on the target sheet will be overwritten.\n'
-            'Proceed?',
-            QMessageBox.Yes | QMessageBox.Cancel,
-            QMessageBox.Cancel
-        )
-        return reply == QMessageBox.Yes
+        """
+        If an overwrite confirmation function has been passed, calls it
+        to get permission to overwrite cell values in target sheet.
+
+        If one has not been passed, just overwrites the target.
+
+        This method should be called at most once per translation,
+        as the result should be stored.
+        :return: None
+        """
+        if self._overwrite_confirm_func:
+            return self._overwrite_confirm_func()
+        else:
+            return True
+        # reply = QMessageBox.question(
+        #     self._dialog_parent,
+        #     'Overwrite Cells?',
+        #     'Cells on the target sheet will be overwritten.\n'
+        #     'Proceed?',
+        #     QMessageBox.Yes | QMessageBox.Cancel,
+        #     QMessageBox.Cancel
+        # )
+        # return reply == QMessageBox.Yes
 
     def add_column_translation(self, *args, **kwargs) -> None:
         """
@@ -307,6 +333,7 @@ class Translation:
                 cell.set_color(DEFAULT_COLOR)
 
     def _whitespace_feedback(self, whitespace_positions):
+        # todo: move this method to a ui class
         """
         Reports to user on whitespace removals.
         Written to be called by _add_whitespace_cell_transforms method
@@ -341,6 +368,7 @@ class Translation:
             self,
             duplicate_positions
     ) -> None:
+        # todo: move this method to a ui class
         """
         Provides feedback to user about duplicates and actions taken
         regarding said duplicates.
@@ -368,6 +396,7 @@ class Translation:
         )
 
     def _position_report(self, *src_positions):
+        # todo: move along with other report methods to a ui class
         """
         Converts iterable of positions into a more user-friendly
         report.
@@ -376,7 +405,6 @@ class Translation:
         :param positions: tuples (int x, int y)
         :return: str
         """
-
         rows = []  # list of row indices in report.
         # This keeps the columns in order.
         row_columns = {}  # dictionary of string lists
@@ -392,6 +420,23 @@ class Translation:
             'Row %s; %s' % (y, ', '.join(row_columns[y]))
             for y in rows]
         return '\n'.join(row_strings)
+
+    @property
+    def as_dict(self) -> dict:
+        """
+        Returns a dict representing the value of each cell in
+        Each row moved.
+        Intended to be used to export information about translation
+        to a json file.
+        :return: dict
+        """
+        return {
+            # datetime, when converted to string, works correctly as a
+            # comparable
+            LOG_DATE_TIME_KEY: str(self._commit_datetime),
+            LOG_TGT_COLUMNS_KEY:
+                [row.to_json() for row in self.translation_rows]
+        }
 
     @property
     def source_sheet(self):
@@ -767,18 +812,19 @@ class ColumnTranslation:
         assert self._parent_translation is not None, \
             "Parent translation must be set"
         values = set()
+        parent = self._parent_translation
+        if parent.reading_log:  # if option is set
+            key = self._target_column_name
+            log_values = parent.reading_log.values_set(key)
+        else:
+            log_values = set()
+        # now check each cell in col for whether it is in previous values
+        # of this column, or if it is in records
         for cell in self.source_column:
             value = cell.value_without_whitespace
             # if cell's value is in set of existing values, return cell.
-            if value in values:
+            if value in values or value in log_values:
                 yield cell
-            else:  # otherwise, check if cell is in log
-                parent = self._parent_translation
-                if parent.read_log:  # if option is set
-                    parent.row_log.find_duplicates(
-                        value, parent.log_group, self.target_column_name
-                    )
-                values.add(value)  # add value to set of existing values
 
 
 class CellGenerator:
@@ -834,6 +880,16 @@ class TranslationRow:
         for cell_t in self.cell_translations:
             assert isinstance(cell_t, CellTranslation)
             cell_t.apply(tgt_sheet, y)
+
+    @property
+    def as_dict(self) -> dict:
+        """
+        Returns json representation of row values that will be
+        moved to target.
+        :return: str
+        """
+        return {cell_translation.cell.column.name: cell_translation.cell.value
+                for cell_translation in self.cell_translations}
 
 
 class CellTranslation:
