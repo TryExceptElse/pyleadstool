@@ -201,7 +201,7 @@ class WorkBookComponent:
     def clear_cache(setter):
         """
         decorator method to be used by value setter.
-        amends method to clear cache of this WorkBookComponent and
+        Amends method to clear cache of this WorkBookComponent and
         instantiated parents.
         :param setter: callable
         :return: callable

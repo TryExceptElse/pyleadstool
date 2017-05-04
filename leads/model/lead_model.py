@@ -5,7 +5,7 @@ sources, etc
 import os
 
 from .campaign import CampaignCollection, Campaign
-from .records import RecordCollection, TranslationEvent
+from .records import RecordCollection
 from leadmacro import Office
 from settings import APP_DATA_DIR, DB_FILE_PATH, CAMPAIGNS_PATH
 
@@ -27,3 +27,6 @@ class Model:
             os.mkdir(self.path)
         self.campaigns = CampaignCollection(CAMPAIGNS_PATH)
         self.records = RecordCollection(DB_FILE_PATH)
+        self.campaign = None  # currently selected campaign
+        self.source_sheet = None  # currently selected src
+        self.target_sheet = None  # currently selected tgt

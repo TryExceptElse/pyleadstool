@@ -1,7 +1,8 @@
 """
 Module holding Translation class and associated methods and classes
 """
-from datetime import datetime
+from datetime import datetime, timedelta
+from dateutil import parser
 
 from .sheets import Sheet, Column, Cell, DEFAULT_COLOR, NONE_STRING
 from .colors import DUPLICATE_CELL_COLOR, DUPLICATE_ROW_COLOR, \
@@ -583,7 +584,9 @@ class ColumnTranslation:
             source_column_name=None,
             target_column_name=None,
             check_for_whitespace: bool=True,
-            check_for_duplicates: bool=False) -> None:
+            check_for_duplicates: bool=False,
+            min_duplicate_val_age: timedelta=None
+    ) -> None:
         if (
             bool(source_column_i is None) ==
             bool(source_column_name is None)
@@ -612,6 +615,8 @@ class ColumnTranslation:
         self._source_column_name = source_column_name
         self._duplicates_check = check_for_duplicates
         self._whitespace_check = check_for_whitespace
+        # duration after which a duplicate value is acceptable
+        self._min_duplicate_age = min_duplicate_val_age
 
     def get_generator(self):
         return CellGenerator(
@@ -815,7 +820,9 @@ class ColumnTranslation:
         parent = self._parent_translation
         if parent.reading_log:  # if option is set
             key = self._target_column_name
-            log_values = parent.reading_log.values_set(key)
+            log_values = parent.reading_log.values_set(
+                key, self._min_duplicate_age
+            )
         else:
             log_values = set()
         # now check each cell in col for whether it is in previous values
