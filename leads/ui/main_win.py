@@ -29,4 +29,7 @@ class MainWin(QMainWindow, Ui_MainWindow):
             self.sheetsList, self.model.office_model
         ))
 
+    def _setup_campaign_list(self):
+        self.campaignList.setModel()
+
 

@@ -14,7 +14,7 @@ class Ui_MainWindow(object):
         MainWindow.resize(800, 600)
         MainWindow.setStyleSheet("QWidget { \n"
 "    background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(193, 193, 193, 255));\n"
-"    border-radius: 10px;\n"
+"    border-radius: 4px;\n"
 "    padding: 2px;\n"
 "    font: 10pt \"Lato\";\n"
 "}\n"
@@ -48,12 +48,12 @@ class Ui_MainWindow(object):
         self.sheetsList = QtWidgets.QListView(self.centralwidget)
         self.sheetsList.setObjectName("sheetsList")
         self.verticalLayout.addWidget(self.sheetsList)
-        self.label = QtWidgets.QLabel(self.centralwidget)
-        self.label.setObjectName("label")
-        self.verticalLayout.addWidget(self.label)
-        self.listView = QtWidgets.QListView(self.centralwidget)
-        self.listView.setObjectName("listView")
-        self.verticalLayout.addWidget(self.listView)
+        self.campaignLabel = QtWidgets.QLabel(self.centralwidget)
+        self.campaignLabel.setObjectName("campaignLabel")
+        self.verticalLayout.addWidget(self.campaignLabel)
+        self.campaignList = QtWidgets.QListView(self.centralwidget)
+        self.campaignList.setObjectName("campaignList")
+        self.verticalLayout.addWidget(self.campaignList)
         self.horizontalLayout.addLayout(self.verticalLayout)
         self.verticalLayout_2 = QtWidgets.QVBoxLayout()
         self.verticalLayout_2.setObjectName("verticalLayout_2")
@@ -92,6 +92,6 @@ class Ui_MainWindow(object):
         _translate = QtCore.QCoreApplication.translate
         MainWindow.setWindowTitle(_translate("MainWindow", "MainWindow"))
         self.sheetsLabel.setText(_translate("MainWindow", "Open Sheets"))
-        self.label.setText(_translate("MainWindow", "Campaigns"))
+        self.campaignLabel.setText(_translate("MainWindow", "Campaigns"))
         self.assocLabel.setText(_translate("MainWindow", "Associations"))
 

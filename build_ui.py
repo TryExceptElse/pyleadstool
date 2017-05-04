@@ -34,6 +34,7 @@ def build_layout(layout_file_path: str, target_path: str):
             stdout=subprocess.PIPE
         )
         tgt_file.write(result.stdout)
+    print('{} created from .ui file.'.format(os.path.basename(target_path)))
 
 
 def _to_py_module_name(layout_name: str):

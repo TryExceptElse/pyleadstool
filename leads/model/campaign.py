@@ -16,6 +16,10 @@ class CampaignCollection:
         if not os.path.exists(path):
             os.mkdir(path)
 
+    @property
+    def campaigns(self):
+        return  # todo
+
 
 class Campaign:
     """
