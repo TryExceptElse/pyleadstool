@@ -3,6 +3,11 @@ Module holding class representing a leads campaign, storing settings,
 associations, records of previous translations, and other information.
 """
 import os
+import json
+
+CAMPAIGN_NAME_KEY = 'name'
+CAMPAIGN_SETTINGS_KEY = 'settings'
+CAMPAIGN_FILE_EXT = '.json'
 
 
 class CampaignCollection:
@@ -18,7 +23,12 @@ class CampaignCollection:
 
     @property
     def campaigns(self):
-        return  # todo
+        # find each file in path that has appropriate ending
+        for file_name in os.listdir(self.path):
+            if not file_name.endswith(CAMPAIGN_FILE_EXT):
+                continue
+            with open(os.path.join(self.path, file_name)) as f:
+                yield Campaign.from_file(f)
 
 
 class Campaign:
@@ -29,19 +39,33 @@ class Campaign:
         self.name = name
         self.settings = settings if settings else {}
 
-    def __dict__(self):
+    @classmethod
+    def from_dict(cls, d: dict):
+        return cls(d[CAMPAIGN_NAME_KEY], d[CAMPAIGN_SETTINGS_KEY])
+
+    @classmethod
+    def from_json(cls, s: str):
+        return cls.from_dict(json.loads(s))
+
+    @classmethod
+    def from_file(cls, f) -> 'Campaign':
+        return cls.from_dict(json.load(f))
+
+    @property
+    def as_dict(self):
         """
         Converts Campaign into a dictionary capable of being stored in
         a JSON file.
         :return: dict
         """
         return {
-            'name': self.name,
-            'settings': self.settings
+            CAMPAIGN_NAME_KEY: self.name,
+            CAMPAIGN_SETTINGS_KEY: self.settings
         }
 
-    @staticmethod
-    def json_hook(obj):
-        if '__type__' in obj and obj['__type__'] == 'Campaign':
-            return Campaign(obj['name'], obj['settings'])
-        return obj
+    @property
+    def as_json(self):
+        return json.dumps(self.as_dict)
+
+    def to_file(self, f) -> None:
+        json.dump(self.as_dict, f)

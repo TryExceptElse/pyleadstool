@@ -20,6 +20,21 @@ class UpdatingListModel(QStandardItemModel):
     def __init__(self, parent):
         super().__init__(parent)
         self.current_items = set()
+        self.update()
+        # start watcher thread
+        self.update_thread = Thread(
+            target=self.watch_for_updates, daemon=True
+        )
+        self.update_thread.start()
+
+    def watch_for_updates(self):
+        """
+        Method that regularly updates the model
+        :return: None
+        """
+        while True:
+            sleep(60 / UPDATE_CHECK_RATE)
+            self.update()
 
     def item_getter(self):
         """
@@ -49,7 +64,7 @@ class UpdatingListModel(QStandardItemModel):
         if len(new_item_set) == 0:
             # if set is empty, place marker for user
             self.clear()
-            self.appendRow(self.EmptyListMarkerItem)
+            self.appendRow(self.EmptyListMarkerItem())
         # add each item in new items that is not in current_items
         for model_item in self.children():
             assert isinstance(model_item, self.UpdatingModelItem)
@@ -157,8 +172,8 @@ class SheetListModel(QStandardItemModel):
 
 class CampaignListModel(UpdatingListModel):
     def __init__(self, parent, collection):
-        super().__init__(parent)
         self.collection = collection
+        super().__init__(parent)
 
     def item_getter(self):
         return self.collection.campaigns

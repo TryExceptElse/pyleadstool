@@ -5,7 +5,7 @@ from PyQt5.Qt import QMainWindow
 
 from ..model.lead_model import Model
 from .layout.mainwindow import Ui_MainWindow
-from .data_model import SheetListModel
+from .data_model import SheetListModel, CampaignListModel
 
 
 class MainWin(QMainWindow, Ui_MainWindow):
@@ -23,6 +23,7 @@ class MainWin(QMainWindow, Ui_MainWindow):
 
     def _complete_gui(self):
         self._setup_sheet_list()
+        self._setup_campaign_list()
 
     def _setup_sheet_list(self):
         self.sheetsList.setModel(SheetListModel(
@@ -30,6 +31,8 @@ class MainWin(QMainWindow, Ui_MainWindow):
         ))
 
     def _setup_campaign_list(self):
-        self.campaignList.setModel()
+        self.campaignList.setModel(CampaignListModel(
+            self.campaignList, self.model.campaigns
+        ))
 
 
