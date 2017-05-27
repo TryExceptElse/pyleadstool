@@ -9,6 +9,9 @@ CAMPAIGN_NAME_KEY = 'name'
 CAMPAIGN_SETTINGS_KEY = 'settings'
 CAMPAIGN_FILE_EXT = '.json'
 
+SETTINGS_WHITESPACE_KEY = 'whitespace_action'
+SETTINGS_DUP_KEY = 'duplicate_action'
+
 
 class CampaignCollection:
     """
@@ -20,6 +23,9 @@ class CampaignCollection:
         self.path = path
         if not os.path.exists(path):
             os.mkdir(path)
+
+    def __iter__(self):
+        return self.campaigns
 
     @property
     def campaigns(self):
