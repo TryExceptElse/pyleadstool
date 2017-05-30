@@ -19,6 +19,8 @@ class Controller:
             translation.commit()
         except Exception as e:
             self.view.show_exception(e, main='Could not apply translations')
+        else:
+            self.record_translation(translation)
 
     def check(self, translation=None):
         # make translation without committing, to be used to find
@@ -33,6 +35,12 @@ class Controller:
             self.view.whitespace_feedback(whitespaces)
         except Exception as e:
             self.view.show_exception(e, main='Could not check data.')
+
+    def record_translation(self, translation):
+        try:
+            self.model.records.add(translation)
+        except Exception as e:
+            self.view.show_exception(e, main='Could not record translation')
 
     # update / utility methods
 
