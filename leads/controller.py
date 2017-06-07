@@ -40,6 +40,21 @@ class Controller:
         except Exception as e:
             self.view.show_exception(e, main='Could not check data.')
 
+    def search_records(self):
+        try:
+            # show search records dlg
+            self.view.show_record_search_dlg()
+        except Exception as e:
+            self.view.show_exception(
+                e, main='Could not show record search dialog.')
+
+    def view_records(self):
+        try:
+            # show record view dlg
+            self.view.show_records_view_dlg()
+        except Exception as e:
+            self.view.show_exception(e, main='Could not view records.')
+
     def record_translation(self, translation):
         try:
             self.model.records.add(translation)

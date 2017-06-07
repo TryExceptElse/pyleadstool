@@ -16,7 +16,7 @@
   <property name="styleSheet">
    <string notr="true">QWidget {
 	background-color: rgba(0, 0, 0, 0);
-    border-radius: 4px;
+    border-radius: -0px;
     padding: 2px;
 	font: 10pt &quot;Lato&quot;;
 }
@@ -49,6 +49,8 @@ QFrame[frameShape=&quot;4&quot;], QFrame[frameShape=&quot;5&quot;]{
 
 QPushButton{
      background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(193, 193, 193, 120));
+    padding-left: 4px;
+    padding-right: 4px;
 }
 
 QPushButton:hover{
@@ -93,9 +95,32 @@ QHeaderView {
 
 QTableCornerButton::section  {
 	background-color: rgba(0, 0, 0, 0);
+}
+
+QLineEdit {
+    background-color: rgba(0, 0, 0, 00);
+}
+
+QLineEdit:hover {
+    background-color: rgba(0, 0, 0, 20);
+}
+
+QDateTimeEdit {
+    background-color: rgba(0, 0, 0, 0);
+}
+
+QDateTimeEdit:hover {
+    background-color: rgba(0, 0, 0, 20);
+}
+
+QComboBox{
+}
+
+QComboBox:Hover{
+    background-color: rgba(0, 0, 0, 20);
 }</string>
   </property>
-  <layout class="QVBoxLayout" name="verticalLayout" stretch="0,0,1,0">
+  <layout class="QVBoxLayout" name="verticalLayout" stretch="0,0,1,0,0">
    <item>
     <widget class="QLabel" name="translationRecordLabel">
      <property name="text">
@@ -214,6 +239,61 @@ QTableCornerButton::section  {
         <widget class="QListView" name="entriesList"/>
        </item>
       </layout>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="actionBar" stretch="0,0,0">
+     <property name="leftMargin">
+      <number>0</number>
+     </property>
+     <item>
+      <spacer name="horizontalSpacer">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pushButton_2">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="toolTip">
+        <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Search entries in translation record for a specific value&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+       </property>
+       <property name="text">
+        <string>Search Record</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pushButton">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="toolTip">
+        <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;View record as a table of values by entry and column.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+       </property>
+       <property name="layoutDirection">
+        <enum>Qt::LeftToRight</enum>
+       </property>
+       <property name="text">
+        <string>View Record as Table</string>
+       </property>
+      </widget>
      </item>
     </layout>
    </item>

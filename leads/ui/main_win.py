@@ -6,6 +6,7 @@ from PyQt5.Qt import *  # all objects in package are named as QWidget, etc
 
 import PyQt5.QtWidgets as QtWidgets
 
+from .dialogs import RecordValSearchDlg, RecordsViewDlg
 from .layout.mainwindow import Ui_MainWindow
 from ..model.lead_model import Model
 
@@ -65,6 +66,8 @@ class MainWin(QMainWindow, Ui_MainWindow):
     def _setup_tool_bar(self):
         self.actionApplyTranslations.triggered.connect(self.controller.apply)
         self.actionCheck.triggered.connect(self.controller.check)
+        self.searchAction.triggered.connect(self.controller.search_records)
+        self.viewRecordsAction.triggered.connect(self.controller.view_records)
 
     def _setup_sheet_list(self):
         self.sheetsList.setModel(self.model.sheets_model)
@@ -176,6 +179,24 @@ class MainWin(QMainWindow, Ui_MainWindow):
             'Row %s; %s' % (y, ', '.join(row_columns[y]))
             for y in rows]
         return '\n'.join(row_strings)
+
+    # dialog display records
+
+    def show_record_search_dlg(self):
+        """
+        Builds and shows record search dialog.
+        :return: None
+        """
+        dlg = RecordValSearchDlg(self, self.model)
+        dlg.exec()
+
+    def show_records_view_dlg(self):
+        """
+        Builds and shows records view dialog.
+        :return: None
+        """
+        dlg = RecordsViewDlg(self, self.model)
+        dlg.exec()
 
     @classmethod
     def show_info_dlg(cls, title, main, info=None, detail=None):

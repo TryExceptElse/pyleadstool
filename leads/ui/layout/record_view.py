@@ -14,7 +14,7 @@ class Ui_Dialog(object):
         Dialog.resize(512, 512)
         Dialog.setStyleSheet("QWidget {\n"
 "    background-color: rgba(0, 0, 0, 0);\n"
-"    border-radius: 4px;\n"
+"    border-radius: -0px;\n"
 "    padding: 2px;\n"
 "    font: 10pt \"Lato\";\n"
 "}\n"
@@ -47,6 +47,8 @@ class Ui_Dialog(object):
 "\n"
 "QPushButton{\n"
 "     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(193, 193, 193, 120));\n"
+"    padding-left: 4px;\n"
+"    padding-right: 4px;\n"
 "}\n"
 "\n"
 "QPushButton:hover{\n"
@@ -91,6 +93,29 @@ class Ui_Dialog(object):
 "\n"
 "QTableCornerButton::section  {\n"
 "    background-color: rgba(0, 0, 0, 0);\n"
+"}\n"
+"\n"
+"QLineEdit {\n"
+"    background-color: rgba(0, 0, 0, 00);\n"
+"}\n"
+"\n"
+"QLineEdit:hover {\n"
+"    background-color: rgba(0, 0, 0, 20);\n"
+"}\n"
+"\n"
+"QDateTimeEdit {\n"
+"    background-color: rgba(0, 0, 0, 0);\n"
+"}\n"
+"\n"
+"QDateTimeEdit:hover {\n"
+"    background-color: rgba(0, 0, 0, 20);\n"
+"}\n"
+"\n"
+"QComboBox{\n"
+"}\n"
+"\n"
+"QComboBox:Hover{\n"
+"    background-color: rgba(0, 0, 0, 20);\n"
 "}")
         self.verticalLayout = QtWidgets.QVBoxLayout(Dialog)
         self.verticalLayout.setObjectName("verticalLayout")
@@ -164,6 +189,29 @@ class Ui_Dialog(object):
         self.entriesListLayout.addWidget(self.entriesList)
         self.horizontalLayout.addLayout(self.entriesListLayout)
         self.verticalLayout.addLayout(self.horizontalLayout)
+        self.actionBar = QtWidgets.QHBoxLayout()
+        self.actionBar.setContentsMargins(0, -1, -1, -1)
+        self.actionBar.setObjectName("actionBar")
+        spacerItem = QtWidgets.QSpacerItem(40, 20, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+        self.actionBar.addItem(spacerItem)
+        self.pushButton_2 = QtWidgets.QPushButton(Dialog)
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.pushButton_2.sizePolicy().hasHeightForWidth())
+        self.pushButton_2.setSizePolicy(sizePolicy)
+        self.pushButton_2.setObjectName("pushButton_2")
+        self.actionBar.addWidget(self.pushButton_2)
+        self.pushButton = QtWidgets.QPushButton(Dialog)
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.pushButton.sizePolicy().hasHeightForWidth())
+        self.pushButton.setSizePolicy(sizePolicy)
+        self.pushButton.setLayoutDirection(QtCore.Qt.LeftToRight)
+        self.pushButton.setObjectName("pushButton")
+        self.actionBar.addWidget(self.pushButton)
+        self.verticalLayout.addLayout(self.actionBar)
         self.buttonBox = QtWidgets.QDialogButtonBox(Dialog)
         self.buttonBox.setOrientation(QtCore.Qt.Horizontal)
         self.buttonBox.setStandardButtons(QtWidgets.QDialogButtonBox.Close)
@@ -187,4 +235,8 @@ class Ui_Dialog(object):
         self.colNamesLabel.setText(_translate("Dialog", "Fields"))
         self.entriesLabel.setText(_translate("Dialog", "Entries"))
         self.displayedFieldLabel.setText(_translate("Dialog", "listed by:"))
+        self.pushButton_2.setToolTip(_translate("Dialog", "<html><head/><body><p>Search entries in translation record for a specific value</p></body></html>"))
+        self.pushButton_2.setText(_translate("Dialog", "Search Record"))
+        self.pushButton.setToolTip(_translate("Dialog", "<html><head/><body><p>View record as a table of values by entry and column.</p></body></html>"))
+        self.pushButton.setText(_translate("Dialog", "View Record as Table"))
 

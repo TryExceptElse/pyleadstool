@@ -48,6 +48,8 @@ class Ui_Dialog(object):
 "\n"
 "QPushButton{\n"
 "     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(193, 193, 193, 120));\n"
+"    padding-left: 4px;\n"
+"    padding-right: 4px;\n"
 "}\n"
 "\n"
 "QPushButton:hover{\n"

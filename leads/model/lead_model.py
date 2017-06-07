@@ -6,7 +6,7 @@ import os
 
 from .display_models import CampaignListModel, SheetListModel, \
     TranslationTableModel
-from .campaign import CampaignCollection, Campaign, \
+from .campaign import CampaignCollection, \
     SETTINGS_WHITESPACE_KEY, SETTINGS_DUP_KEY
 from .records import RecordCollection
 from leadmacro import Office
