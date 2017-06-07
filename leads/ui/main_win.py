@@ -4,6 +4,8 @@ This class also serves as the view of the program.
 """
 from PyQt5.Qt import *  # all objects in package are named as QWidget, etc
 
+import PyQt5.QtWidgets as QtWidgets
+
 from .layout.mainwindow import Ui_MainWindow
 from ..model.lead_model import Model
 
@@ -77,6 +79,12 @@ class MainWin(QMainWindow, Ui_MainWindow):
         :return: None
         """
         self.assocTable.setModel(self.model.assoc_table_model)
+        # resize headers depending on stored content
+        header = self.assocTable.horizontalHeader()
+        assert isinstance(header, QHeaderView)
+        header.setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeToContents)
 
     # Methods called from controller
 
@@ -170,7 +178,7 @@ class MainWin(QMainWindow, Ui_MainWindow):
         return '\n'.join(row_strings)
 
     @classmethod
-    def show_info_dlg(cls, title, main, info, detail):
+    def show_info_dlg(cls, title, main, info=None, detail=None):
         msg = QMessageBox(QMessageBox.Information, title, main)
         msg.setInformativeText(info) if info else None
         msg.setDetailedText(detail) if detail else None
@@ -178,10 +186,8 @@ class MainWin(QMainWindow, Ui_MainWindow):
 
     @classmethod
     def show_exception(cls, e, title=None, main=None, info=None, detail=None):
-        if title is None:
-            title = 'Exception'
-        if main is None:
-            main = 'An exception occurred'
+        title = title if title else 'Exception'
+        main = main if main else 'An exception occurred'
         msg = QMessageBox(QMessageBox.Information, title, main)
         msg.setInformativeText(info if info else str(e))
         msg.setDetailedText(detail) if detail else None

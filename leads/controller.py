@@ -21,6 +21,10 @@ class Controller:
             self.view.show_exception(e, main='Could not apply translations')
         else:
             self.record_translation(translation)
+            self.view.show_info_dlg(  # tell user translation has been applied
+                title='Macro Finished',
+                main='Finished moving cell values'
+            )
 
     def check(self, translation=None):
         # make translation without committing, to be used to find

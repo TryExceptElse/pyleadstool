@@ -34,7 +34,7 @@ class Model:
             self.office_model = None
         self.path = path
         if not os.path.exists(self.path):
-            os.mkdir(self.path)
+            os.mkdir(self.path)  # create dir if it does not already exist
         self.campaigns = CampaignCollection(CAMPAIGNS_PATH)
         self.records = RecordCollection(DB_FILE_PATH)
         self.campaign = None  # currently selected campaign
