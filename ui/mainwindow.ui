@@ -14,17 +14,21 @@
    <string>MainWindow</string>
   </property>
   <property name="styleSheet">
-   <string notr="true">QWidget { 
-    background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(193, 193, 193, 255));
+   <string notr="true">QWidget {
+	background-color: rgba(0, 0, 0, 0);
     border-radius: 4px;
     padding: 2px;
 	font: 10pt &quot;Lato&quot;;
 }
 
+QWidget#MainWindow, QWidget#Dialog{
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(193, 193, 193));
+}
+
 QLabel {
-	background-color: qlineargradient(spread:reflect, x1:0.607246, y1:0.346, x2:0.623037, y2:1, stop:0 rgba(8, 120, 0, 255), stop:1 rgba(15, 76, 0, 255));
+	background-color: qlineargradient(spread:reflect, x1:0.607246, y1:0.346, x2:0.623037, y2:1, stop:0 rgba(8, 120, 0, 0), stop:1 rgba(15, 76, 0, 0));
 	font: 12pt &quot;Lato&quot;;
-    color: rgb(240, 240, 240);
+    color: rgb(24, 24, 24);
 }
 
 QMenuBar {
@@ -37,6 +41,58 @@ QStatusBar {
     border-radius: 1px;
 	background-color: qlineargradient(spread:reflect, x1:0.607246, y1:0.346, x2:0.623037, y2:1, stop:0 rgba(8, 120, 0, 255), stop:1 rgba(15, 76, 0, 255));
     color: rgb(240, 240, 240);
+}
+
+QFrame[frameShape=&quot;4&quot;], QFrame[frameShape=&quot;5&quot;]{
+	background-color: rgba(8, 120, 0, 255);
+}
+
+QPushButton{
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(193, 193, 193, 120));
+}
+
+QPushButton:hover{
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(220, 223, 220, 120));
+}
+
+QPushButton:pressed{
+     background-color: qlineargradient(spread:reflect, x2:0.262, y2:0.573773, x1:1, y1:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(220, 223, 220, 120));
+}
+
+QDateEdit{
+     background-color: qlineargradient(spread:reflect, x2:0.262, y2:0.573773, x1:1, y1:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(220, 223, 220, 250));
+}
+
+QDateEdit:hover{
+      background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(220, 223, 220, 120));
+}
+
+QTableWidget{
+    color: rgba(0, 0, 0, 0);
+    background-color: rgba(0, 0, 0, 0);
+    alternate-background-color: rgba(0,0,0,20);
+}
+
+QTableView{
+    color: rgba(0, 0, 0, 0);
+    background-color: rgba(0, 0, 0, 0);
+    alternate-background-color: rgba(0,0,0,10);
+}
+
+QHeaderView::section{
+    border-radius: 4px solid black;
+	font: 10pt &quot;Lato&quot;;
+    min-width: 180; 
+    min-height: 32;
+}
+
+QHeaderView {
+    border-radius: 4px solid black;
+    min-height: 16;
+}
+
+QTableCornerButton::section  {
+	background-color: rgba(0, 0, 0, 0);
 }</string>
   </property>
   <widget class="QWidget" name="centralwidget">
@@ -51,12 +107,26 @@ QStatusBar {
        </widget>
       </item>
       <item>
+       <widget class="Line" name="openSheetsULine">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item>
        <widget class="QListView" name="sheetsList"/>
       </item>
       <item>
        <widget class="QLabel" name="campaignLabel">
         <property name="text">
          <string>Campaigns</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="Line" name="ULine">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
         </property>
        </widget>
       </item>
@@ -87,7 +157,24 @@ QStatusBar {
        </widget>
       </item>
       <item>
-       <widget class="QTableView" name="assocTable"/>
+       <widget class="Line" name="assocULine">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QTableView" name="assocTable">
+        <property name="alternatingRowColors">
+         <bool>true</bool>
+        </property>
+        <property name="showGrid">
+         <bool>false</bool>
+        </property>
+        <attribute name="horizontalHeaderShowSortIndicator" stdset="0">
+         <bool>false</bool>
+        </attribute>
+       </widget>
       </item>
      </layout>
     </item>
@@ -112,10 +199,13 @@ QStatusBar {
     <enum>TopToolBarArea</enum>
    </attribute>
    <attribute name="toolBarBreak">
-    <bool>true</bool>
+    <bool>false</bool>
    </attribute>
    <addaction name="actionApplyTranslations"/>
    <addaction name="actionCheck"/>
+   <addaction name="separator"/>
+   <addaction name="viewRecordsAction"/>
+   <addaction name="searchAction"/>
   </widget>
   <action name="actionApplyTranslations">
    <property name="text">
@@ -131,6 +221,22 @@ QStatusBar {
    </property>
    <property name="toolTip">
     <string>Check selected translations for duplicates and/or whitespace, determined by settings.</string>
+   </property>
+  </action>
+  <action name="searchAction">
+   <property name="text">
+    <string>Search Records</string>
+   </property>
+   <property name="toolTip">
+    <string>search records for a specific value</string>
+   </property>
+  </action>
+  <action name="viewRecordsAction">
+   <property name="text">
+    <string>View Records</string>
+   </property>
+   <property name="toolTip">
+    <string>View records by date and campaign</string>
    </property>
   </action>
  </widget>
