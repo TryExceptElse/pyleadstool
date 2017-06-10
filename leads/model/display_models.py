@@ -197,21 +197,17 @@ class TranslationTableModel(QAbstractTableModel):
     settings
     """
 
-    horizontal_headers = {
-        0: 'Source Column',
-        1: 'Duplicate Check',
-        2: 'Whitespace Check'
-    }
+    horizontal_headers = (
+        'Source Column',
+        'Duplicate Check',
+        'Whitespace Check'
+    )
 
     def __init__(self, data_model):
         super().__init__()
         self.model = data_model
-        self.setup_table()
         self._translation_entries = []  # stored in order
         self.update()
-
-    def setup_table(self):
-        pass
 
     def rowCount(self, parent):
         if self.model.source_sheet:

@@ -98,15 +98,6 @@ class Ui_Dialog(object):
         self.translationRecordLabel.setAlignment(QtCore.Qt.AlignCenter)
         self.translationRecordLabel.setObjectName("translationRecordLabel")
         self.verticalLayout.addWidget(self.translationRecordLabel)
-        self.formLayout = QtWidgets.QFormLayout()
-        self.formLayout.setObjectName("formLayout")
-        self.dateTimeLabel = QtWidgets.QLabel(Dialog)
-        self.dateTimeLabel.setObjectName("dateTimeLabel")
-        self.formLayout.setWidget(0, QtWidgets.QFormLayout.LabelRole, self.dateTimeLabel)
-        self.dateTimeReadout = QtWidgets.QLabel(Dialog)
-        self.dateTimeReadout.setObjectName("dateTimeReadout")
-        self.formLayout.setWidget(0, QtWidgets.QFormLayout.FieldRole, self.dateTimeReadout)
-        self.verticalLayout.addLayout(self.formLayout)
         self.line = QtWidgets.QFrame(Dialog)
         self.line.setFrameShape(QtWidgets.QFrame.HLine)
         self.line.setFrameShadow(QtWidgets.QFrame.Sunken)
@@ -130,6 +121,4 @@ class Ui_Dialog(object):
         _translate = QtCore.QCoreApplication.translate
         Dialog.setWindowTitle(_translate("Dialog", "Dialog"))
         self.translationRecordLabel.setText(_translate("Dialog", "Translation Record"))
-        self.dateTimeLabel.setText(_translate("Dialog", "Date and Time"))
-        self.dateTimeReadout.setText(_translate("Dialog", "DateTime placeholder"))
 

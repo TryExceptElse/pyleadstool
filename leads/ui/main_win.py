@@ -198,18 +198,18 @@ class MainWin(QMainWindow, Ui_MainWindow):
         dlg = RecordsViewDlg(self, self.model)
         dlg.exec()
 
-    @classmethod
-    def show_info_dlg(cls, title, main, info=None, detail=None):
+    def show_info_dlg(self, title, main, info=None, detail=None):
         msg = QMessageBox(QMessageBox.Information, title, main)
+        msg.setStyleSheet(self.styleSheet())
         msg.setInformativeText(info) if info else None
         msg.setDetailedText(detail) if detail else None
         msg.exec()
 
-    @classmethod
-    def show_exception(cls, e, title=None, main=None, info=None, detail=None):
+    def show_exception(self, e, title=None, main=None, info=None, detail=None):
         title = title if title else 'Exception'
         main = main if main else 'An exception occurred'
         msg = QMessageBox(QMessageBox.Information, title, main)
+        msg.setStyleSheet(self.styleSheet())
         msg.setInformativeText(info if info else str(e))
         msg.setDetailedText(detail) if detail else None
         msg.exec()
