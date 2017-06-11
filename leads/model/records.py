@@ -3,7 +3,7 @@ This module stores translation records, which store information about
 when leads information has been moved, and what took place.
 """
 
-import unqlite
+import tinydb
 import json
 import uuid
 
@@ -20,7 +20,7 @@ class RecordCollection:
 
     def __init__(self, path: str):
         self.path = path
-        self.db = unqlite.UnQLite(self.path)
+        self.db = tinydb.TinyDB(self.path)
 
     def add(self, translation: 'Translation') -> None:
         """
@@ -29,6 +29,8 @@ class RecordCollection:
         :return None
         """
         translation_record = TranslationRecord(translation)
+        assert isinstance(self.db, tinydb.TinyDB)
+        self.db.
         self.db[translation_record.key] = translation_record
 
     def values_set(self, key: str, min_datetime=None) -> set:
@@ -41,7 +43,7 @@ class RecordCollection:
         # todo: cache previously used sets in new db for quick access
 
     def __iter__(self):
-        for k, record in self.db:
+        for k, record in self.db.:
             yield TranslationRecord(record)
 
 
