@@ -21,8 +21,12 @@
 	font: 10pt &quot;Lato&quot;;
 }
 
-QWidget#MainWindow, QWidget#Dialog, QMessageBox{
+QWidget#MainWindow, QWidget#Dialog{
      background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(193, 193, 193));
+}
+
+QMessageBox{
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(220, 220, 220));
 }
 
 QLabel {
