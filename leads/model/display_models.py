@@ -142,7 +142,7 @@ class SheetListModel(QStandardItemModel):
             # remove old sheet items
             for row in self.children():
                 assert isinstance(row, self.SheetItem)
-                if row.sheet_name not in sheets_in_model:
+                if row.sheet_id not in sheets_in_model:
                     self.removeRow(row.index())
                     changed = True
             # add new sheet items
