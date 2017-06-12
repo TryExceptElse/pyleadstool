@@ -176,10 +176,14 @@ class SheetListModel(QStandardItemModel):
         """
         Individual item in sheet list model.
         """
-        def __init__(self, sheet_name: str):
+        def __init__(self, sheet_id: str):
             super().__init__()
-            self.sheet_name = sheet_name
-            self.setText(sheet_name)
+            self.sheet_id = sheet_id
+            self.setText(self._id_to_display_str(sheet_id))
+
+        @staticmethod
+        def _id_to_display_str(id_str: str) -> str:
+            return id_str.replace('::', '  :  ')
 
     class NoConnectionItem(QStandardItem):
         """
