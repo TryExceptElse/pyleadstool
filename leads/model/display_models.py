@@ -140,10 +140,12 @@ class SheetListModel(QStandardItemModel):
             sheets_in_model = set(self.office_model.sheet_names)
             changed = False  # set to true if changes are made during update
             # remove old sheet items
-            for row in self.children():
+            for row_index in range(self.rowCount()):
+                row = self.itemFromIndex(self.index(row_index, 0))
                 assert isinstance(row, self.SheetItem)
                 if row.sheet_id not in sheets_in_model:
                     self.removeRow(row.index())
+                    self.sheet_names.remove(row.sheet_id)
                     changed = True
             # add new sheet items
             for sheet_name in sheets_in_model:
