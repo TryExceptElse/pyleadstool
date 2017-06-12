@@ -33,8 +33,13 @@ class Model:
         except ValueError:
             self.office_model = None
         self.path = path
+        author_path = os.path.dirname(self.path)
+        if not os.path.exists(author_path):
+            # if the 'author' folder does not exist, create it.
+            # windows stores app data as 'user\AppData\Local\author\appname
+            os.mkdir(author_path)
         if not os.path.exists(self.path):
-            os.mkdir(self.path)  # create dir if it does not already exist
+            os.mkdir(self.path)  # create app dir if it does not already exist
         self.campaigns = CampaignCollection(CAMPAIGNS_PATH)
         self.records = RecordCollection(DB_FILE_PATH)
         self.campaign = None  # currently selected campaign

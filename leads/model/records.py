@@ -30,7 +30,6 @@ class RecordCollection:
         """
         translation_record = TranslationRecord(translation)
         assert isinstance(self.db, tinydb.TinyDB)
-        self.db.
         self.db[translation_record.key] = translation_record
 
     def values_set(self, key: str, min_datetime=None) -> set:
@@ -43,7 +42,7 @@ class RecordCollection:
         # todo: cache previously used sets in new db for quick access
 
     def __iter__(self):
-        for k, record in self.db.:
+        for k, record in self.db:
             yield TranslationRecord(record)
 
 

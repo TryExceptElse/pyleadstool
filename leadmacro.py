@@ -3966,7 +3966,7 @@ class LogDlg(PyLeadDlg):
         method called on change to write_log or read_log checkboxes.
         :return: None
         """
-        enabled = self.write_log_checkbox.isChecked() and \
+        enabled = self.write_log_checkbox.isChecked() or \
             self.read_log_checkbox.isChecked()
         self.group_selector.setEnabled(enabled)
         self.log_file_list.setEnabled(enabled)

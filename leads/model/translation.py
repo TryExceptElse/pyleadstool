@@ -2,7 +2,6 @@
 Module holding Translation class and associated methods and classes
 """
 from datetime import datetime, timedelta
-from dateutil import parser
 
 from .sheets import Sheet, Column, Cell, DEFAULT_COLOR, NONE_STRING
 from .colors import DUPLICATE_CELL_COLOR, DUPLICATE_ROW_COLOR, \
