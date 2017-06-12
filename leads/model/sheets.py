@@ -42,6 +42,10 @@ CORAL = 0xFF7F50
 ORANGE = 0xBDB76B
 KHAKI = 0xF0E68C
 
+
+class NoInterfaceConnectionException(Exception):
+    """ Exception thrown when an interface model cannot connect """
+
 ###############################################################################
 # BOOK INTERFACE
 
@@ -1520,13 +1524,79 @@ class Interface:
         pass
 
 
-class Office:
+class Office(Model):
     """
     Handles interface with workbook.
 
     This may not need to be a class, but any independent functions appear
     as their own macro, so this is instead its own class
+
+    If instantiated, provides methods for finding and using models or
+    sheets from different office programs. In this use, it can be
+    used as a normal interface Model
     """
+
+    def __init__(self):
+        self._interfaces = {}
+
+    def update_models(self):
+        # add interfaces that are available but not yet instantiated
+        available_interfaces = self.get_interfaces()
+        for interface_name in available_interfaces:
+            if interface_name in self._interfaces:
+                continue
+            # if interface name is not currently a key, it is not being
+            # used despite being available. Try to instantiate it.
+            try:
+                interface_model = getattr(self, interface_name)()
+                self.interfaces[interface_name] = interface_model
+            except NoInterfaceConnectionException:
+                pass
+        # remove interfaces that are no longer available
+        for interface_name in self._interfaces:
+            if interface_name not in available_interfaces:
+                del self.interfaces[interface_name]
+
+    def __iter__(self):
+        """
+        Yields sheets in model
+        :return: Iterable[Sheet]
+        """
+        return self.sheets
+
+    @property
+    def interfaces(self):
+        self.update_models()
+        return self._interfaces
+
+    @property
+    def sheet_names(self):
+        for interface_model in self.interfaces.values():
+            assert isinstance(interface_model, Model)
+            for sheet_name in interface_model.sheet_names:
+                yield sheet_name
+
+    @property
+    def sheets(self):
+        for interface_model in self.interfaces.values():
+            assert isinstance(interface_model, Model)
+            for sheet in interface_model.sheets:
+                yield sheet
+
+    @property
+    def has_connection(self) -> bool:
+        return len(self._interfaces)
+
+    def sheet_exists(self, *sheet_name: str) -> str:
+        for name in sheet_name:
+            for interface in self.interfaces.values():
+                assert isinstance(interface, Model)
+                result = interface.sheet_exists(name)
+                if result:
+                    return result
+
+    def __getitem__(self, item: str or int):
+        pass
 
     class XW(Interface):
         """
@@ -1544,7 +1614,7 @@ class Office:
                     try:
                         self.active_app = xw.apps[0]  # get first app open
                     except IndexError:
-                        raise EnvironmentError(
+                        raise NoInterfaceConnectionException(
                             'Office does not appear to have any running '
                             'instances.'
                         )
@@ -2092,6 +2162,27 @@ class Office:
                 assert isinstance(new_float, (int, float))
                 new_value = float(new_float)
                 self._source_cell.setValue(new_value)
+
+    @classmethod
+    def get_interfaces(cls) -> set:
+        interfaces = set()
+        if cls._uno_interface_available():
+            interfaces.add('Uno')
+        if cls._xw_interface_available():
+            interfaces.add('XW')
+
+    @staticmethod
+    def _uno_interface_available():
+        try:
+            XSCRIPTCONTEXT  # if this variable exists, PyUno is being used.
+        except NameError:
+            return False
+        else:
+            return True
+
+    @staticmethod
+    def _xw_interface_available():
+        return xw is not None
 
     @staticmethod
     def get_interface() -> str or None:
