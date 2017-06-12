@@ -61,6 +61,30 @@ class Controller:
         except Exception as e:
             self.view.show_exception(e, main='Could not record translation')
 
+    # context menu methods
+
+    def set_tgt_sheet_i(self, row: int) -> None:
+        """
+        Sets sheet to be the source for translation.
+        :param row: int index of sheet in model
+        :return: None
+        """
+        self.model.target_sheet = self._sheet_from_index(row)
+
+    def set_src_sheet_i(self, row: int) -> None:
+        """
+        Sets sheet to be the target for translation.
+        :param row: int index of sheet in model
+        :return: None
+        """
+        self.model.source_sheet = self._sheet_from_index(row)
+
+    def _sheet_from_index(self, i: int):
+        sheet_item = self.model.sheets_model.itemFromIndex(i)
+        sheet_id = sheet_item.sheet_id
+        sheet = self.model.office_model[sheet_id]
+        return sheet
+
     # update / utility methods
 
     def _make_translation(self) -> 'Translation':

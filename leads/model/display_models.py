@@ -122,6 +122,8 @@ class SheetListModel(QStandardItemModel):
 
     def watch_for_updates(self):
         try:
+            # py-win32 needs to have this called before being used
+            # from threads
             if pythoncom:
                 pythoncom.CoInitialize()
             while True:
@@ -173,6 +175,15 @@ class SheetListModel(QStandardItemModel):
             self.clear()
             self.appendRow(self.NoConnectionItem())
             self._connected = False
+
+    @property
+    def is_empty(self):
+        """
+        Returns boolean indicating whether this model contains items
+        representing open sheets.
+        :return: bool
+        """
+        return self.rowCount() == 0 or not self._has_connection
 
     class SheetItem(QStandardItem):
         """

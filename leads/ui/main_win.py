@@ -71,6 +71,7 @@ class MainWin(QMainWindow, Ui_MainWindow):
 
     def _setup_sheet_list(self):
         self.sheetsList.setModel(self.model.sheets_model)
+        self.sheetsList.contextMenuEvent = self._open_sheet_context_menu
 
     def _setup_campaign_list(self):
         self.campaignList.setModel(self.model.campaigns_model)
@@ -88,6 +89,31 @@ class MainWin(QMainWindow, Ui_MainWindow):
         header.setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
         self.assocTable.setColumnWidth(1, 140)
         self.assocTable.setColumnWidth(2, 140)
+
+    # Context menus
+
+    def _open_sheet_context_menu(self, event):
+        """
+        Method called when user opens the context menu for an open
+        sheet item.
+        :return: None
+        """
+        # if list is empty, do nothing
+        if self.sheetsList.model().is_empty:
+            return
+        menu = QMenu(self)
+        set_src_action = menu.addAction("Set as Source")
+        set_tgt_action = menu.addAction("Set as Target")
+        set_src_action.triggered.connect(
+            lambda: self.controller.set_src_sheet_i(self._sheet_index(event))
+        )
+        set_tgt_action.triggered.connect(
+            lambda: self.controller.set_tgt_sheet_i(self._sheet_index(event))
+        )
+        self.menu.popup(event.pos())
+
+    def _sheet_index(self, event):
+        return self.sheetsList.indexAt(event.pos())
 
     # Methods called from controller
 
