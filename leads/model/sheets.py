@@ -26,8 +26,12 @@
 
 try:
     import xlwings as xw
-except ImportError:
+except ImportError as e:
     xw = None
+    print('xlwings is not installed or could not be imported')
+    print(e)
+
+import time
 
 MAX_CELL_GAP = 10  # max distance between inhabited cells in the workbook
 CACHING = True  # whether or not cells should cache accessed values
@@ -1535,12 +1539,15 @@ class Office(Model):
     sheets from different office programs. In this use, it can be
     used as a normal interface Model
     """
+    MIN_TIME_BETWEEN_UPDATES = 1  # time in seconds between updates of models
 
     def __init__(self):
         self._interfaces = {}
+        self.last_update_t = 0
 
     def update_models(self):
         # add interfaces that are available but not yet instantiated
+        # first get names of available interfaces
         available_interfaces = self.get_interfaces()
         for interface_name in available_interfaces:
             if interface_name in self._interfaces:
@@ -1548,14 +1555,16 @@ class Office(Model):
             # if interface name is not currently a key, it is not being
             # used despite being available. Try to instantiate it.
             try:
-                interface_model = getattr(self, interface_name)()
-                self.interfaces[interface_name] = interface_model
+                interface_model = self.get_model(interface_name)
+                self._interfaces[interface_name] = interface_model
             except NoInterfaceConnectionException:
                 pass
         # remove interfaces that are no longer available
         for interface_name in self._interfaces:
             if interface_name not in available_interfaces:
-                del self.interfaces[interface_name]
+                del self._interfaces[interface_name]
+        # reset time of last update
+        self.last_update_t = time.time()
 
     def __iter__(self):
         """
@@ -1566,7 +1575,8 @@ class Office(Model):
 
     @property
     def interfaces(self):
-        self.update_models()
+        if self.time_since_last_update > self.MIN_TIME_BETWEEN_UPDATES:
+            self.update_models()
         return self._interfaces
 
     @property
@@ -1585,7 +1595,11 @@ class Office(Model):
 
     @property
     def has_connection(self) -> bool:
-        return len(self._interfaces)
+        return len(self.interfaces)
+
+    @property
+    def time_since_last_update(self) -> float:
+        return time.time() - self.last_update_t
 
     def sheet_exists(self, *sheet_name: str) -> str:
         for name in sheet_name:
@@ -2170,6 +2184,7 @@ class Office(Model):
             interfaces.add('Uno')
         if cls._xw_interface_available():
             interfaces.add('XW')
+        return interfaces
 
     @staticmethod
     def _uno_interface_available():
@@ -2204,43 +2219,45 @@ class Office(Model):
 
         # otherwise, return None / False
 
-    @staticmethod
-    def get_interface_class() -> Interface:
+    @classmethod
+    def get_interface_class(cls, interface=None) -> Interface:
         """Gets interface class, ie, Uno or XW"""
-        interface = Office.get_interface()  # gets str name of interface class
+        if interface is None:
+            interface = Office.get_interface()  # gets str name of interface
         if not interface:
             raise ValueError('Should be run as macro using XLWings or PyUno.'
                              'Neither could be detected.')
-        return getattr(Office, interface)
+        return getattr(cls, interface)
 
-    @staticmethod
-    def get_model() -> Model:
-        return Office.get_model_class()()  # get model class and instantiate
+    @classmethod
+    def get_model(cls, interface_name=None) -> Model:
+        # get model class and instantiate
+        return cls.get_model_class(interface_name)() 
 
-    @staticmethod
-    def get_model_class() -> type:
+    @classmethod
+    def get_model_class(cls, interface_name=None) -> type:
         """Gets appropriate Model class"""
-        return Office.get_interface_class().Model
+        return cls.get_interface_class(interface_name).Model
 
-    @staticmethod
-    def get_sheet_class() -> type:
+    @classmethod
+    def get_sheet_class(cls, interface_name=None) -> type:
         """Gets appropriate Sheet class"""
-        return Office.get_interface_class().Sheet
+        return cls.get_interface_class(interface_name).Sheet
 
-    @staticmethod
-    def get_column_class() -> type:
+    @classmethod
+    def get_column_class(cls, interface_name=None) -> type:
         """Gets appropriate Column class"""
-        return Office.get_interface_class().Column
+        return cls.get_interface_class(interface_name).Column
 
-    @staticmethod
-    def get_row_class() -> type:
+    @classmethod
+    def get_row_class(cls, interface_name=None) -> type:
         """Gets appropriate Row class"""
-        return Office.get_interface_class().Row
+        return cls.get_interface_class(interface_name).Row
 
-    @staticmethod
-    def get_cell_class() -> type:
+    @classmethod
+    def get_cell_class(cls, interface_name=None) -> type:
         """Gets appropriate Cell class"""
-        return Office.get_interface_class().Cell
+        return cls.get_interface_class(interface_name).Cell
 
 
 class Color:

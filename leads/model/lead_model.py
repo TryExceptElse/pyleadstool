@@ -9,7 +9,7 @@ from .display_models import CampaignListModel, SheetListModel, \
 from .campaign import CampaignCollection, \
     SETTINGS_WHITESPACE_KEY, SETTINGS_DUP_KEY
 from .records import RecordCollection
-from leadmacro import Office
+from .sheets import Office
 from settings import APP_DATA_DIR, DB_FILE_PATH, CAMPAIGNS_PATH
 
 TRANSLATION_TABLE_NAME = 'Translation'
@@ -29,14 +29,17 @@ class Model:
 
     def __init__(self, path: str=APP_DATA_DIR):
         try:
-            self.office_model = Office.get_model()
+            self.office_model = Office()
         except ValueError:
             self.office_model = None
         self.path = path
         author_path = os.path.dirname(self.path)
         if not os.path.exists(author_path):
-            # if the 'author' folder does not exist, create it.
-            # windows stores app data as 'user\AppData\Local\author\appname
+            # if the 'author' folder does not exist on windows; create it.
+            # windows stores app data inside an author folder, such as;
+            # 'user\AppData\Local\author\appname'
+            # on non-windows system, this shouldn't do anything, as the
+            # directory will always exist already.
             os.mkdir(author_path)
         if not os.path.exists(self.path):
             os.mkdir(self.path)  # create app dir if it does not already exist

@@ -1,14 +1,19 @@
 """
 
 """
+try:
+    import pythoncom
+except ImportError:
+    pythoncom = None
+
 from threading import Thread
 from time import sleep
 from PyQt5.Qt import *  # all classes from this module are named as QSomething
 
-from leadmacro import Model as OfficeModel, Sheet, Column
+from .sheets import Office as OfficeModel, Sheet, Column
 
 
-UPDATE_CHECK_RATE = 1  # Hz
+UPDATE_CHECK_RATE = 5  # Hz
 
 WHITESPACE_CHK_DEFAULT = True
 DUPLICATE_CHK_DEFAULT = False
@@ -18,7 +23,6 @@ class UpdatingListModel(QStandardItemModel):
     """
     List model which can be extended to create a regularly updating
     """
-    update_frq = 1  # Hz
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -104,7 +108,8 @@ class SheetListModel(QStandardItemModel):
         self.sheet_names = set()
         self._connected = None
 
-        self.update()
+        # if xlwings is being used, all update calls must be from
+        # the same thread, thanks to py-win32
         # start watcher thread
         self.update_thread = Thread(
             target=self.watch_for_updates, daemon=True
@@ -116,12 +121,18 @@ class SheetListModel(QStandardItemModel):
         self.sheet_names.clear()
 
     def watch_for_updates(self):
-        while True:
-            sleep(60 / UPDATE_CHECK_RATE)
-            self.update()
+        try:
+            if pythoncom:
+                pythoncom.CoInitialize()
+            while True:
+                self.update()
+                sleep(1 / UPDATE_CHECK_RATE)
+        finally:
+            if pythoncom:
+                pythoncom.CoUninitialize()
 
     def update(self):
-        if self.office_model is not None:
+        if self.office_model is not None and self.office_model.has_connection:
             # this will clear items, so it must be set first.
             self._has_connection = True
             assert isinstance(self.office_model, OfficeModel), \
@@ -160,7 +171,7 @@ class SheetListModel(QStandardItemModel):
         Individual item in sheet list model.
         """
         def __init__(self, sheet_name: str):
-            super().__init__(sheet_name)
+            super().__init__()
             self.sheet_name = sheet_name
             self.setText(sheet_name)
 
