@@ -13,7 +13,7 @@ from PyQt5.Qt import *  # all classes from this module are named as QSomething
 from .sheets import Office as OfficeModel, Sheet, Column
 
 
-UPDATE_CHECK_RATE = 5  # Hz
+UPDATE_CHECK_RATE = 0.5  # Hz
 
 WHITESPACE_CHK_DEFAULT = True
 DUPLICATE_CHK_DEFAULT = False
@@ -138,17 +138,21 @@ class SheetListModel(QStandardItemModel):
             assert isinstance(self.office_model, OfficeModel), \
                 self.office_model
             sheets_in_model = set(self.office_model.sheet_names)
+            changed = False  # set to true if changes are made during update
             # remove old sheet items
             for row in self.children():
                 assert isinstance(row, self.SheetItem)
                 if row.sheet_name not in sheets_in_model:
                     self.removeRow(row.index())
+                    changed = True
             # add new sheet items
             for sheet_name in sheets_in_model:
                 if sheet_name not in self.sheet_names:
                     self.sheet_names.add(sheet_name)
                     self.appendRow(self.SheetItem(sheet_name))
-            self.sort(1)
+                    changed = True
+            if changed:
+                self.sort(1)
         else:
             # if no way to connect to an office instance can be found,
             # office_model will be None
@@ -162,9 +166,11 @@ class SheetListModel(QStandardItemModel):
     def _has_connection(self, connected: bool):
         if connected and not self._connected:
             self.clear()
+            self._connected = True
         elif not connected and self._connected is not False:
             self.clear()
             self.appendRow(self.NoConnectionItem())
+            self._connected = False
 
     class SheetItem(QStandardItem):
         """
