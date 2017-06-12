@@ -11,7 +11,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         MainWindow.setObjectName("MainWindow")
-        MainWindow.resize(800, 600)
+        MainWindow.resize(900, 600)
         MainWindow.setStyleSheet("QWidget {\n"
 "    background-color: rgba(0, 0, 0, 0);\n"
 "    border-radius: -0px;\n"
@@ -80,7 +80,7 @@ class Ui_MainWindow(object):
 "QTableView{\n"
 "    color: rgba(0, 0, 0, 0);\n"
 "    background-color: rgba(0, 0, 0, 0);\n"
-"    alternate-background-color: rgba(0,0,0,10);\n"
+"    alternate-background-color: rgba(0,0,0,15);\n"
 "}\n"
 "\n"
 "QHeaderView::section{\n"
@@ -175,11 +175,11 @@ class Ui_MainWindow(object):
         self.assocTable.horizontalHeader().setSortIndicatorShown(False)
         self.assocTableLayout.addWidget(self.assocTable)
         self.horizontalLayout.addLayout(self.assocTableLayout)
-        self.horizontalLayout.setStretch(0, 1)
-        self.horizontalLayout.setStretch(1, 3)
+        self.horizontalLayout.setStretch(0, 2)
+        self.horizontalLayout.setStretch(1, 5)
         MainWindow.setCentralWidget(self.centralwidget)
         self.menubar = QtWidgets.QMenuBar(MainWindow)
-        self.menubar.setGeometry(QtCore.QRect(0, 0, 800, 25))
+        self.menubar.setGeometry(QtCore.QRect(0, 0, 900, 25))
         self.menubar.setObjectName("menubar")
         MainWindow.setMenuBar(self.menubar)
         self.statusbar = QtWidgets.QStatusBar(MainWindow)

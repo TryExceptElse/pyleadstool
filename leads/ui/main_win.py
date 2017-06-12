@@ -86,8 +86,8 @@ class MainWin(QMainWindow, Ui_MainWindow):
         header = self.assocTable.horizontalHeader()
         assert isinstance(header, QHeaderView)
         header.setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeToContents)
+        self.assocTable.setColumnWidth(1, 140)
+        self.assocTable.setColumnWidth(2, 140)
 
     # Methods called from controller
 
