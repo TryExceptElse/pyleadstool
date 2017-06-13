@@ -41,6 +41,10 @@ QMenuBar {
     color: rgb(240, 240, 240);
 }
 
+QMenu {
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(230, 230, 230));
+}
+
 QStatusBar {
     border-radius: 1px;
 	background-color: qlineargradient(spread:reflect, x1:0.607246, y1:0.346, x2:0.623037, y2:1, stop:0 rgba(8, 120, 0, 255), stop:1 rgba(15, 76, 0, 255));
@@ -122,6 +126,10 @@ QComboBox{
 
 QComboBox:Hover{
     background-color: rgba(0, 0, 0, 20);
+}
+
+QToolTip{
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(230, 230, 230));
 }</string>
   </property>
   <widget class="QWidget" name="centralwidget">

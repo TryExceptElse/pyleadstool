@@ -39,6 +39,10 @@ class Ui_MainWindow(object):
 "    color: rgb(240, 240, 240);\n"
 "}\n"
 "\n"
+"QMenu {\n"
+"     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(230, 230, 230));\n"
+"}\n"
+"\n"
 "QStatusBar {\n"
 "    border-radius: 1px;\n"
 "    background-color: qlineargradient(spread:reflect, x1:0.607246, y1:0.346, x2:0.623037, y2:1, stop:0 rgba(8, 120, 0, 255), stop:1 rgba(15, 76, 0, 255));\n"
@@ -120,6 +124,10 @@ class Ui_MainWindow(object):
 "\n"
 "QComboBox:Hover{\n"
 "    background-color: rgba(0, 0, 0, 20);\n"
+"}\n"
+"\n"
+"QToolTip{\n"
+"     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(230, 230, 230));\n"
 "}")
         self.centralwidget = QtWidgets.QWidget(MainWindow)
         self.centralwidget.setObjectName("centralwidget")
