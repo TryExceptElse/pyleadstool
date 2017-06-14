@@ -123,6 +123,10 @@ class Model:
         """
         raise NotImplementedError
 
+    @property
+    def has_connection(self):
+        raise NotImplementedError
+
 
 class WorkBookComponent:
     """
@@ -1595,7 +1599,7 @@ class Office(Model):
 
     @property
     def has_connection(self) -> bool:
-        return len(self.interfaces)
+        return any([itf.has_connection for itf in self.interfaces.values()])
 
     @property
     def time_since_last_update(self) -> float:
@@ -1721,6 +1725,10 @@ class Office(Model):
                 for book in self.books:
                     for sheet in book.sheets:
                         yield "%s::%s" % (book.name, sheet.name)
+
+            @property
+            def has_connection(self):
+                return len(self.books) != 0
 
         class Sheet(Sheet):
             """
@@ -2007,6 +2015,10 @@ class Office(Model):
                 :return: tuple
                 """
                 return self.model.Sheets.ElementNames
+
+            @property
+            def has_connection(self):
+                return True  # can't lose connection in a macro
 
         class Sheet(Sheet):
             """
