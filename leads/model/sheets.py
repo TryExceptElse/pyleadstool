@@ -32,6 +32,7 @@ except ImportError as e:
     print(e)
 
 import time
+import multiprocessing as mp
 
 MAX_CELL_GAP = 10  # max distance between inhabited cells in the workbook
 CACHING = True  # whether or not cells should cache accessed values
@@ -2299,3 +2300,47 @@ class Color:
         g = (self.color >> 8) & 255
         b = self.color & 255
         return r, g, b
+
+
+_worker_pool = None
+
+
+def _get_pool():
+    """
+    Gets worker pool for use across interfaces
+    :return: mp.Pool
+    """
+    global _worker_pool
+    if _worker_pool is None:
+        _worker_pool = mp.Pool(mp.cpu_count())
+    return _worker_pool
+
+
+def _async(func):
+    """
+    Applies the function asynchronously and does not wait for the result.
+
+    If the result of the function is important, and the function should
+    not be applied asynchronously, use the _worker_pool directly
+    :param func: callable
+    :return: None
+    """
+    def wrapper(self, *args, **kwargs):
+        _get_pool().apply_async(func, args, kwargs)
+
+    return wrapper
+
+
+def _async_and_return(func):
+    """
+    Applies the function in a separate process and waits for the result
+    This has no performance advantage over running a function in the
+    current process, but it can facilitate certain py-win32 functions
+    that are problematic when run in multiple threads of the
+    same process.
+    :return: something - result of func
+    """
+    def wrapper(self, *args, **kwargs):
+        return _get_pool().apply(func, args, kwargs).get()
+
+    return wrapper
