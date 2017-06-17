@@ -24,14 +24,20 @@
     SOFTWARE.
 """
 
+import logging
+import time
+
 try:
     import xlwings as xw
 except ImportError as e:
     xw = None
-    print('xlwings is not installed or could not be imported')
-    print(e)
+    logging.info('xlwings is not installed or could not be imported: %s' % e)
 
-import time
+try:
+    import pythoncom
+except ImportError as e:
+    pythoncom = None
+    logging.info('pythoncom is not installed or could not be imported: %s' % e)
 
 MAX_CELL_GAP = 10  # max distance between inhabited cells in the workbook
 CACHING = True  # whether or not cells should cache accessed values
@@ -1614,7 +1620,10 @@ class Office(Model):
                     return result
 
     def __getitem__(self, item: str or int):
-        pass
+        for interface in self.interfaces.values():
+            result = interface[item]
+            if result is not None:
+                return result
 
     class XW(Interface):
         """
