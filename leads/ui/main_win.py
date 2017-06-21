@@ -5,6 +5,7 @@ This class also serves as the view of the program.
 from PyQt5.Qt import *  # all objects in package are named as QWidget, etc
 
 import PyQt5.QtWidgets as QtWidgets
+import PyQt5.QtGui as QtGui
 
 from .dialogs import RecordValSearchDlg, RecordsViewDlg
 from .layout.mainwindow import Ui_MainWindow
@@ -110,7 +111,7 @@ class MainWin(QMainWindow, Ui_MainWindow):
         set_tgt_action.triggered.connect(
             lambda: self.controller.set_tgt_sheet_i(self._sheet_index(event))
         )
-        self.menu.popup(event.pos())
+        menu.popup(QtGui.QCursor.pos())
 
     def _sheet_index(self, event):
         return self.sheetsList.indexAt(event.pos())

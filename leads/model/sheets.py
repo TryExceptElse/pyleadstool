@@ -25,14 +25,27 @@
 """
 
 try:
-    import xlwings as xw
-except ImportError as e:
-    xw = None
-    print('xlwings is not installed or could not be imported')
-    print(e)
+    import logging
+    import time
+    import multiprocessing
 
-import time
-import multiprocessing as mp
+    try:
+        import xlwings as xw
+    except ImportError as e:
+        xw = None
+        logging.info('xlwings is not installed or could not be imported: %s' % e)
+
+    try:
+        import pythoncom
+    except ImportError as e:
+        pythoncom = None
+        logging.info('pythoncom is not installed or could not be imported: %s' % e)
+
+except ImportError:
+    logging = None
+    time = None
+    xlwings = None
+    pythoncom = None
 
 MAX_CELL_GAP = 10  # max distance between inhabited cells in the workbook
 CACHING = True  # whether or not cells should cache accessed values
@@ -122,6 +135,10 @@ class Model:
         Gets iterable of sheet names
         :return: str iterable
         """
+        raise NotImplementedError
+
+    @property
+    def has_connection(self):
         raise NotImplementedError
 
 
@@ -1596,7 +1613,7 @@ class Office(Model):
 
     @property
     def has_connection(self) -> bool:
-        return len(self.interfaces)
+        return any([itf.has_connection for itf in self.interfaces.values()])
 
     @property
     def time_since_last_update(self) -> float:
@@ -1611,7 +1628,10 @@ class Office(Model):
                     return result
 
     def __getitem__(self, item: str or int):
-        pass
+        for interface in self.interfaces.values():
+            result = interface[item]
+            if result is not None:
+                return result
 
     class XW(Interface):
         """
@@ -1722,6 +1742,10 @@ class Office(Model):
                 for book in self.books:
                     for sheet in book.sheets:
                         yield "%s::%s" % (book.name, sheet.name)
+
+            @property
+            def has_connection(self):
+                return len(self.books) != 0
 
         class Sheet(Sheet):
             """
@@ -2008,6 +2032,10 @@ class Office(Model):
                 :return: tuple
                 """
                 return self.model.Sheets.ElementNames
+
+            @property
+            def has_connection(self):
+                return True  # can't lose connection in a macro
 
         class Sheet(Sheet):
             """
@@ -2300,47 +2328,3 @@ class Color:
         g = (self.color >> 8) & 255
         b = self.color & 255
         return r, g, b
-
-
-_worker_pool = None
-
-
-def _get_pool():
-    """
-    Gets worker pool for use across interfaces
-    :return: mp.Pool
-    """
-    global _worker_pool
-    if _worker_pool is None:
-        _worker_pool = mp.Pool(mp.cpu_count())
-    return _worker_pool
-
-
-def _async(func):
-    """
-    Applies the function asynchronously and does not wait for the result.
-
-    If the result of the function is important, and the function should
-    not be applied asynchronously, use the _worker_pool directly
-    :param func: callable
-    :return: None
-    """
-    def wrapper(self, *args, **kwargs):
-        _get_pool().apply_async(func, args, kwargs)
-
-    return wrapper
-
-
-def _async_and_return(func):
-    """
-    Applies the function in a separate process and waits for the result
-    This has no performance advantage over running a function in the
-    current process, but it can facilitate certain py-win32 functions
-    that are problematic when run in multiple threads of the
-    same process.
-    :return: something - result of func
-    """
-    def wrapper(self, *args, **kwargs):
-        return _get_pool().apply(func, args, kwargs).get()
-
-    return wrapper
