@@ -156,7 +156,7 @@ class SheetListModel(QStandardItemModel):
                     self.appendRow(self.SheetItem(sheet_name))
                     changed = True
             if changed:
-                self.sort(1)
+                self.sort(0)  # sort based on row 0? (uncertain)
         else:
             # if no way to connect to an office instance can be found,
             # office_model will be None
