@@ -1,7 +1,7 @@
 from .model.lead_model import Model
-from .ui.main_win import MainWin
 from .model.translation import Translation, ColumnTranslation
 from .model.display_models import TranslationTableModel
+from .ui.main_win import MainWin
 
 
 class Controller:
@@ -63,23 +63,113 @@ class Controller:
 
     # context menu methods
 
-    def set_tgt_sheet_i(self, row: int) -> None:
+    @property
+    def tgt_sheet_i(self):
+        """
+        Gets index of tgt sheet for translation.
+        If no target is set, returns None
+        :return: QIndex
+        """
+        if self.model.target_sheet is None:
+            return None
+        else:
+            return self._index_from_sheet(self.model.target_sheet)
+
+    @tgt_sheet_i.setter
+    def tgt_sheet_i(self, index):
         """
         Sets sheet to be the source for translation.
-        :param row: int index of sheet in model
+        :param index: QIndex
         :return: None
         """
-        self.model.target_sheet = self._sheet_from_index(row)
+        # if tgt is being unset (passed None)...
+        if index is None:
+            self._sheet_item_from_index(self.tgt_sheet_i).clear_mark()
+            self.model.target_sheet = None
+            return
 
-    def set_src_sheet_i(self, row: int) -> None:
+        sheet = self.sheet_from_index(index)
+        if self.model.target_sheet:  # if tgt was previously set, clear icon
+            self._sheet_item_from_index(self.tgt_sheet_i).clear_mark()
+        # if sheet was previously marked as the source, unset src sheet
+        if sheet is self.model.source_sheet:
+            self._sheet_item_from_index(self.src_sheet_i).clear_mark()
+            self.model.source_sheet = None
+        self.model.target_sheet = sheet
+        item = self._sheet_item_from_index(index)  # get sheet icon
+        item.mark_as_tgt()
+
+    @property
+    def src_sheet_i(self):
+        """
+        Gets index of source sheet.
+        :return: QModelIndex
+        """
+        if self.model.source_sheet is None:
+            return None
+        else:
+            return self._index_from_sheet(self.model.source_sheet)
+
+    @src_sheet_i.setter
+    def src_sheet_i(self, index) -> None:
         """
         Sets sheet to be the target for translation.
-        :param row: int index of sheet in model
+        :param index: QModelIndex
         :return: None
         """
-        self.model.source_sheet = self._sheet_from_index(row)
+        # if src is being unset...
+        if index is None:
+            self._sheet_item_from_index(self.src_sheet_i).clear_mark()
+            self.model.source_sheet = None
+            return
 
-    def _sheet_from_index(self, i: int):
+        # otherwise, if a real index has been passed...
+        sheet = self.sheet_from_index(index)
+        if self.model.source_sheet:  # if src was previously set, clear icon
+            self._sheet_item_from_index(self.src_sheet_i).clear_mark()
+        if sheet is self.model.target_sheet:  # if sheet was previously the tgt
+            self._sheet_item_from_index(self.tgt_sheet_i).clear_mark()
+            self.model.target_sheet = None  # clear it, as it can't be both
+        self.model.source_sheet = sheet
+        item = self._sheet_item_from_index(index)  # get sheet icon
+        item.mark_as_src()
+
+    def _index_from_sheet(self, goal_sheet):
+        for r, sheet_item in enumerate(self.model.sheets_model):
+            sheet = self.model.office_model[sheet_item.sheet_id]
+            if sheet is goal_sheet:
+                return self.model.sheets_model.index(r, 0)
+
+    def deselect_as_src_i(self, index):
+        """
+        Clears sheet at passed index, so that it is no longer src.
+        If passed index is not src sheet, does nothing.
+        :param index: QIndex
+        :return: None
+        """
+        sheet_item = self._sheet_item_from_index(index)
+        sheet = self.sheet_from_index(index)
+        if sheet is self.model.source_sheet:
+            self.model.source_sheet = None
+            sheet_item.clear_mark()
+
+    def deselect_as_tgt_i(self, index):
+        """
+        Clears sheet at passed index, so that it is no longer tgt.
+        If passed index is not tgt sheet, does nothing.
+        :param index: QIndex
+        :return: None
+        """
+        sheet_item = self._sheet_item_from_index(index)
+        sheet = self.sheet_from_index(index)
+        if sheet is self.model.target_sheet:
+            self.model.target_sheet = None
+            sheet_item.clear_mark()
+
+    def _sheet_item_from_index(self, i):
+        return self.model.sheets_model.itemFromIndex(i)
+
+    def sheet_from_index(self, i):
         sheet_item = self.model.sheets_model.itemFromIndex(i)
         sheet_id = sheet_item.sheet_id
         sheet = self.model.office_model[sheet_id]

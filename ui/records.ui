@@ -16,13 +16,17 @@
   <property name="styleSheet">
    <string notr="true">QWidget {
 	background-color: rgba(0, 0, 0, 0);
-    border-radius: 4px;
+    border-radius: -0px;
     padding: 2px;
 	font: 10pt &quot;Lato&quot;;
 }
 
 QWidget#MainWindow, QWidget#Dialog{
      background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(193, 193, 193));
+}
+
+QMessageBox{
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(220, 220, 220));
 }
 
 QLabel {
@@ -35,6 +39,21 @@ QMenuBar {
     border-radius: 1px;
 	background-color: qlineargradient(spread:reflect, x1:0.607246, y1:0.346, x2:0.623037, y2:1, stop:0 rgba(8, 120, 0, 255), stop:1 rgba(15, 76, 0, 255));
     color: rgb(240, 240, 240);
+}
+
+QMenu {
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(230, 230, 230));
+    color: rgb(12, 12, 12);
+}
+
+QMenu::item:hover{
+    background-color: rgba(0, 0, 0, 15);
+    color: rgb(12, 12, 12);
+}
+
+QMenu::item:selected{
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(230, 230, 230), stop:1 rgb(255, 255, 255));
+    color: rgb(12, 12, 12);
 }
 
 QStatusBar {
@@ -54,7 +73,7 @@ QPushButton{
 }
 
 QPushButton:hover{
-     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(220, 223, 220, 120));
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(240, 243, 240, 120));
 }
 
 QPushButton:pressed{
@@ -78,7 +97,7 @@ QTableWidget{
 QTableView{
     color: rgba(0, 0, 0, 0);
     background-color: rgba(0, 0, 0, 0);
-    alternate-background-color: rgba(0,0,0,20);
+    alternate-background-color: rgba(0,0,0,15);
 }
 
 QHeaderView::section{
@@ -95,6 +114,38 @@ QHeaderView {
 
 QTableCornerButton::section  {
 	background-color: rgba(0, 0, 0, 0);
+}
+
+QLineEdit {
+    background-color: rgba(0, 0, 0, 00);
+}
+
+QLineEdit:hover {
+    background-color: rgba(0, 0, 0, 15);
+}
+
+QDateTimeEdit {
+    background-color: rgba(0, 0, 0, 0);
+}
+
+QDateTimeEdit:hover {
+    background-color: rgba(0, 0, 0, 15);
+}
+
+QComboBox{
+}
+
+QComboBox::down-arrow{
+   background-color: rgba(0, 0, 0, 0);
+	image: url(resources/arrow-down-16.png);
+}
+
+QComboBox:Hover{
+    background-color: rgba(0, 0, 0, 15);
+}
+
+QToolTip{
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(230, 230, 230));
 }</string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout" stretch="0,1,0">

@@ -103,18 +103,34 @@ class MainWin(QMainWindow, Ui_MainWindow):
         if self.sheetsList.model().is_empty:
             return
         menu = QMenu(self)
-        set_src_action = menu.addAction("Set as Source")
-        set_tgt_action = menu.addAction("Set as Target")
-        set_src_action.triggered.connect(
-            lambda: self.controller.set_src_sheet_i(self._sheet_index(event))
-        )
-        set_tgt_action.triggered.connect(
-            lambda: self.controller.set_tgt_sheet_i(self._sheet_index(event))
-        )
-        menu.popup(QtGui.QCursor.pos())
+        index = self.sheetsList.selectedIndexes()[0]  # get selected sheet i
+        sheet = self.controller.sheet_from_index(index)
 
-    def _sheet_index(self, event):
-        return self.sheetsList.indexAt(event.pos())
+        # set src action
+        if sheet is not self.model.source_sheet:
+            set_src_action = menu.addAction("Select as source")
+            set_src_action.triggered.connect(
+                lambda: setattr(self.controller, 'src_sheet_i', index)
+            )
+        # remove src action
+        else:
+            clear_src_action = menu.addAction("Remove as source")
+            clear_src_action.triggered.connect(
+                lambda: setattr(self.controller, 'src_sheet_i', None)
+            )
+        # set tgt action
+        if sheet is not self.model.target_sheet:
+            set_tgt_action = menu.addAction("Select as target")
+            set_tgt_action.triggered.connect(
+                lambda: setattr(self.controller, 'tgt_sheet_i', index)
+            )
+        # remove tgt action
+        else:
+            clear_tgt_action = menu.addAction("Remove as target")
+            clear_tgt_action.triggered.connect(
+                lambda: setattr(self.controller, 'tgt_sheet_i', None)
+            )
+        menu.popup(QtGui.QCursor.pos())
 
     # Methods called from controller
 

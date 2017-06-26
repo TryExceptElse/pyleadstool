@@ -11,6 +11,7 @@ from time import sleep
 from PyQt5.Qt import *  # all classes from this module are named as QSomething
 
 from .sheets import Office as OfficeModel, Sheet, Column
+from ..util import rsc_util as rsc
 
 
 UPDATE_CHECK_RATE = 0.5  # Hz
@@ -185,6 +186,10 @@ class SheetListModel(QStandardItemModel):
         """
         return self.rowCount() == 0 or not self._has_connection
 
+    def __iter__(self):
+        for r in range(self.rowCount()):
+            yield self.item(r)
+
     class SheetItem(QStandardItem):
         """
         Individual item in sheet list model.
@@ -197,6 +202,27 @@ class SheetListModel(QStandardItemModel):
         @staticmethod
         def _id_to_display_str(id_str: str) -> str:
             return id_str.replace('::', '  :  ')
+
+        def mark_as_src(self):
+            """
+            Gives this item an icon marking it as a data source.
+            :return: None
+            """
+            self.setIcon(QIcon(rsc.get_icon_path('sheet-src-16')))
+
+        def mark_as_tgt(self):
+            """
+            Gives this item an icon marking it as a translation target.
+            :return: None
+            """
+            self.setIcon(QIcon(rsc.get_icon_path('sheet-tgt-16')))
+
+        def clear_mark(self):
+            """
+            If item has been marked as src or tgt, clears mark.
+            :return: None
+            """
+            self.setIcon(QIcon())  # clear icon
 
     class NoConnectionItem(QStandardItem):
         """

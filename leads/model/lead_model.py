@@ -27,11 +27,14 @@ class Model:
     model of leads information, including campaigns, sources, etc
     """
 
-    def __init__(self, path: str=APP_DATA_DIR):
-        try:
-            self.office_model = Office()
-        except ValueError:
-            self.office_model = None
+    def __init__(self, path: str=APP_DATA_DIR, office_model=None):
+        if office_model is not None:
+            self.office_model = office_model
+        else:
+            try:
+                self.office_model = Office()
+            except ValueError:
+                self.office_model = None
         self.path = path
         author_path = os.path.dirname(self.path)
         if not os.path.exists(author_path):

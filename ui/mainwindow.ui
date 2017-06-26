@@ -14,7 +14,9 @@
    <string>MainWindow</string>
   </property>
   <property name="styleSheet">
-   <string notr="true">QWidget {
+   <string notr="true">/* WIDGET + MAINWINDOW/DIALOG STYLE */
+
+QWidget {
 	background-color: rgba(0, 0, 0, 0);
     border-radius: -0px;
     padding: 2px;
@@ -25,15 +27,101 @@ QWidget#MainWindow, QWidget#Dialog{
      background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(193, 193, 193));
 }
 
-QMessageBox{
-     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(220, 220, 220));
+/* 
+##########################
+OTHERS, SORTED ALPHABETICALLY
+##########################
+/*
+
+/* COMBO BOX */
+
+QComboBox{
 }
+
+QComboBox::drop-down {
+    border-radius: -0px;
+}
+
+QComboBox::down-arrow{
+   background-color: rgba(0, 0, 0, 0);
+	image: url(resources/arrow-down-16.png);
+    border-radius: -0px;
+}
+
+QComboBox:Hover{
+    background-color: rgba(0, 0, 0, 15);
+}
+
+/* DATE-TIME EDIT */
+
+QDateTimeEdit {
+    background-color: rgba(0, 0, 0, 0);
+}
+
+QDateTimeEdit::drop-down{
+    border-radius: -0px;
+}
+
+QDateTimeEdit:hover {
+    background-color: rgba(0, 0, 0, 15);
+}
+
+/* DATE EDIT */
+
+QDateEdit{
+     background-color: qlineargradient(spread:reflect, x2:0.262, y2:0.573773, x1:1, y1:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(220, 223, 220, 250));
+    border-radius: -0px;
+}
+
+QDateEdit:hover{
+      background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(220, 223, 220, 120));
+}
+
+QDateEdit::down-arrow:hover {
+	image: url(noimg);
+}
+
+QDateEdit::down-arrow:hover {
+	image: url(resources/arrow-down-16.png);
+}
+
+/* HORIZONTAL + VERTICAL LINES*/
+
+QFrame[frameShape=&quot;4&quot;], QFrame[frameShape=&quot;5&quot;]{
+	background-color: rgba(8, 120, 0, 255);
+}
+
+/* LABEL */
 
 QLabel {
 	background-color: qlineargradient(spread:reflect, x1:0.607246, y1:0.346, x2:0.623037, y2:1, stop:0 rgba(8, 120, 0, 0), stop:1 rgba(15, 76, 0, 0));
 	font: 12pt &quot;Lato&quot;;
     color: rgb(24, 24, 24);
 }
+
+/* LINE EDIT */
+
+QLineEdit {
+    background-color: rgba(0, 0, 0, 00);
+}
+
+QLineEdit:hover {
+    background-color: rgba(0, 0, 0, 15);
+}
+
+/* LIST */
+
+QListView::item:selected {
+    background-color: rgba(0, 240, 120, 120)
+}
+
+/* MESSAGE BOX */
+
+QMessageBox{
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(220, 220, 220));
+}
+
+/* MENU */
 
 QMenuBar {
     border-radius: 1px;
@@ -56,15 +144,7 @@ QMenu::item:selected{
     color: rgb(12, 12, 12);
 }
 
-QStatusBar {
-    border-radius: 1px;
-	background-color: qlineargradient(spread:reflect, x1:0.607246, y1:0.346, x2:0.623037, y2:1, stop:0 rgba(8, 120, 0, 255), stop:1 rgba(15, 76, 0, 255));
-    color: rgb(240, 240, 240);
-}
-
-QFrame[frameShape=&quot;4&quot;], QFrame[frameShape=&quot;5&quot;]{
-	background-color: rgba(8, 120, 0, 255);
-}
+/* PUSH BUTTON */
 
 QPushButton{
      background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(193, 193, 193, 120));
@@ -80,13 +160,15 @@ QPushButton:pressed{
      background-color: qlineargradient(spread:reflect, x2:0.262, y2:0.573773, x1:1, y1:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(220, 223, 220, 120));
 }
 
-QDateEdit{
-     background-color: qlineargradient(spread:reflect, x2:0.262, y2:0.573773, x1:1, y1:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(220, 223, 220, 250));
+/* STATUS BAR */
+
+QStatusBar {
+    border-radius: 1px;
+	background-color: qlineargradient(spread:reflect, x1:0.607246, y1:0.346, x2:0.623037, y2:1, stop:0 rgba(8, 120, 0, 255), stop:1 rgba(15, 76, 0, 255));
+    color: rgb(240, 240, 240);
 }
 
-QDateEdit:hover{
-      background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(220, 223, 220, 120));
-}
+/* TABLE + HEADER STYLES */
 
 QTableWidget{
     color: rgba(0, 0, 0, 0);
@@ -116,31 +198,11 @@ QTableCornerButton::section  {
 	background-color: rgba(0, 0, 0, 0);
 }
 
-QLineEdit {
-    background-color: rgba(0, 0, 0, 00);
-}
-
-QLineEdit:hover {
-    background-color: rgba(0, 0, 0, 15);
-}
-
-QDateTimeEdit {
-    background-color: rgba(0, 0, 0, 0);
-}
-
-QDateTimeEdit:hover {
-    background-color: rgba(0, 0, 0, 15);
-}
-
-QComboBox{
-}
-
-QComboBox:Hover{
-    background-color: rgba(0, 0, 0, 15);
-}
+/* TOOL TIP */
 
 QToolTip{
-     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(230, 230, 230));
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgba(255, 255, 255, 130), stop:1 rgba(230, 230, 230, 130));
+    border-radius: -0px;
 }</string>
   </property>
   <widget class="QWidget" name="centralwidget">
@@ -162,7 +224,11 @@ QToolTip{
        </widget>
       </item>
       <item>
-       <widget class="QListView" name="sheetsList"/>
+       <widget class="QListView" name="sheetsList">
+        <property name="editTriggers">
+         <set>QAbstractItemView::NoEditTriggers</set>
+        </property>
+       </widget>
       </item>
       <item>
        <widget class="QLabel" name="campaignLabel">
@@ -179,7 +245,11 @@ QToolTip{
        </widget>
       </item>
       <item>
-       <widget class="QListView" name="campaignList"/>
+       <widget class="QListView" name="campaignList">
+        <property name="editTriggers">
+         <set>QAbstractItemView::NoEditTriggers</set>
+        </property>
+       </widget>
       </item>
      </layout>
     </item>

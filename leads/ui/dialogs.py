@@ -23,6 +23,7 @@ class RecordEntryViewDlg(LeadsDialog, RecordEntryViewLayout):
     Class handling gui dialog allowing viewing of an entry in
     translation records.
     """
+
     def __init__(self, controller: 'Controller', model: 'Model'):
         super().__init__(controller, model)
         self.setupUi(self)
@@ -35,6 +36,7 @@ class RecordValSearchDlg(LeadsDialog, RecordValSearchLayout):
     Class handling searching of records for translation record
     entries containing specified value(s) in specified field(s)
     """
+    window_title = 'Search Records'
     search_all_records_header = 'Searching All Records'
     search_specific_record_header_prefix = 'Searching Record of '
     search_n_records_header = 'Searching {} Records'
@@ -42,6 +44,7 @@ class RecordValSearchDlg(LeadsDialog, RecordValSearchLayout):
     def __init__(self, controller, model, *records):
         super().__init__(controller, model)
         self.setupUi(self)
+        self.setWindowTitle(self.window_title)
         self.endDateTimeEdit.setDateTime(datetime.datetime.now())
         self.records = records if records else None
         self.headerLabel.setText(self.find_header_text())
@@ -77,7 +80,10 @@ class RecordsViewDlg(LeadsDialog, RecordsViewLayout):
     Class allowing viewing of all translations in records,
     by campaign, date, and time.
     """
+    window_title = 'All Records'
+
     def __init__(self, controller, model):
         super().__init__(controller, model)
         self.setupUi(self)
+        self.setWindowTitle(self.window_title)
         self.endDate.setDateTime(datetime.datetime.now())

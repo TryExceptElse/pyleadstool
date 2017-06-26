@@ -80,6 +80,7 @@ class Ui_MainWindow(object):
 "\n"
 "QDateEdit{\n"
 "     background-color: qlineargradient(spread:reflect, x2:0.262, y2:0.573773, x1:1, y1:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(220, 223, 220, 250));\n"
+"    border-radius: -0px;\n"
 "}\n"
 "\n"
 "QDateEdit:hover{\n"
@@ -126,6 +127,18 @@ class Ui_MainWindow(object):
 "    background-color: rgba(0, 0, 0, 0);\n"
 "}\n"
 "\n"
+"QDateTimeEdit::drop-down{\n"
+"    border-radius: -0px;\n"
+"}\n"
+"\n"
+"QDateEdit::down-arrow:hover {\n"
+"    image: url(noimg);\n"
+"}\n"
+"\n"
+"QDateEdit::down-arrow:hover {\n"
+"    image: url(resources/arrow-down-16.png);\n"
+"}\n"
+"\n"
 "QDateTimeEdit:hover {\n"
 "    background-color: rgba(0, 0, 0, 15);\n"
 "}\n"
@@ -133,12 +146,23 @@ class Ui_MainWindow(object):
 "QComboBox{\n"
 "}\n"
 "\n"
+"QComboBox::drop-down {\n"
+"    border-radius: -0px;\n"
+"}\n"
+"\n"
+"QComboBox::down-arrow{\n"
+"   background-color: rgba(0, 0, 0, 0);\n"
+"    image: url(resources/arrow-down-16.png);\n"
+"    border-radius: -0px;\n"
+"}\n"
+"\n"
 "QComboBox:Hover{\n"
 "    background-color: rgba(0, 0, 0, 15);\n"
 "}\n"
 "\n"
 "QToolTip{\n"
-"     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(230, 230, 230));\n"
+"     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgba(255, 255, 255, 130), stop:1 rgba(230, 230, 230, 130));\n"
+"    border-radius: -0px;\n"
 "}")
         self.centralwidget = QtWidgets.QWidget(MainWindow)
         self.centralwidget.setObjectName("centralwidget")
@@ -155,6 +179,7 @@ class Ui_MainWindow(object):
         self.openSheetsULine.setObjectName("openSheetsULine")
         self.sideBar.addWidget(self.openSheetsULine)
         self.sheetsList = QtWidgets.QListView(self.centralwidget)
+        self.sheetsList.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.sheetsList.setObjectName("sheetsList")
         self.sideBar.addWidget(self.sheetsList)
         self.campaignLabel = QtWidgets.QLabel(self.centralwidget)
@@ -166,6 +191,7 @@ class Ui_MainWindow(object):
         self.ULine.setObjectName("ULine")
         self.sideBar.addWidget(self.ULine)
         self.campaignList = QtWidgets.QListView(self.centralwidget)
+        self.campaignList.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.campaignList.setObjectName("campaignList")
         self.sideBar.addWidget(self.campaignList)
         self.horizontalLayout.addLayout(self.sideBar)

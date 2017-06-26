@@ -28,6 +28,10 @@ QWidget#MainWindow, QWidget#Dialog{
      background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(193, 193, 193));
 }
 
+QMessageBox{
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(220, 220, 220));
+}
+
 QLabel {
 	background-color: qlineargradient(spread:reflect, x1:0.607246, y1:0.346, x2:0.623037, y2:1, stop:0 rgba(8, 120, 0, 0), stop:1 rgba(15, 76, 0, 0));
 	font: 12pt &quot;Lato&quot;;
@@ -38,6 +42,21 @@ QMenuBar {
     border-radius: 1px;
 	background-color: qlineargradient(spread:reflect, x1:0.607246, y1:0.346, x2:0.623037, y2:1, stop:0 rgba(8, 120, 0, 255), stop:1 rgba(15, 76, 0, 255));
     color: rgb(240, 240, 240);
+}
+
+QMenu {
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(230, 230, 230));
+    color: rgb(12, 12, 12);
+}
+
+QMenu::item:hover{
+    background-color: rgba(0, 0, 0, 15);
+    color: rgb(12, 12, 12);
+}
+
+QMenu::item:selected{
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(230, 230, 230), stop:1 rgb(255, 255, 255));
+    color: rgb(12, 12, 12);
 }
 
 QStatusBar {
@@ -66,6 +85,7 @@ QPushButton:pressed{
 
 QDateEdit{
      background-color: qlineargradient(spread:reflect, x2:0.262, y2:0.573773, x1:1, y1:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(220, 223, 220, 250));
+    border-radius: -0px;
 }
 
 QDateEdit:hover{
@@ -81,7 +101,7 @@ QTableWidget{
 QTableView{
     color: rgba(0, 0, 0, 0);
     background-color: rgba(0, 0, 0, 0);
-    alternate-background-color: rgba(0,0,0,10);
+    alternate-background-color: rgba(0,0,0,15);
 }
 
 QHeaderView::section{
@@ -105,22 +125,45 @@ QLineEdit {
 }
 
 QLineEdit:hover {
-    background-color: rgba(0, 0, 0, 20);
+    background-color: rgba(0, 0, 0, 15);
 }
 
 QDateTimeEdit {
     background-color: rgba(0, 0, 0, 0);
 }
 
+QDateTimeEdit::drop-down{
+    border-radius: -0px;
+}
+
+QDateTimeEdit::down-arrow {
+	image: url(resources/arrow-down-16.png);
+}
+
 QDateTimeEdit:hover {
-    background-color: rgba(0, 0, 0, 20);
+    background-color: rgba(0, 0, 0, 15);
 }
 
 QComboBox{
 }
 
+QComboBox::drop-down {
+    border-radius: -0px;
+}
+
+QComboBox::down-arrow{
+   background-color: rgba(0, 0, 0, 0);
+    border-radius: -0px;
+    image: url(resources/arrow-down-16.png);
+}
+
 QComboBox:Hover{
-    background-color: rgba(0, 0, 0, 20);
+    background-color: rgba(0, 0, 0, 15);
+}
+
+QToolTip{
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgba(255, 255, 255, 130), stop:1 rgba(230, 230, 230, 130));
+    border-radius: -0px;
 }</string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
@@ -195,7 +238,7 @@ QComboBox:Hover{
       <widget class="QDateTimeEdit" name="endDateTimeEdit"/>
      </item>
      <item row="0" column="1">
-      <widget class="QComboBox" name="comboBox"/>
+      <widget class="QComboBox" name="campaignSelector"/>
      </item>
     </layout>
    </item>
