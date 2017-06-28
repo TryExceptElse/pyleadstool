@@ -7,7 +7,8 @@ from PyQt5.Qt import *  # all objects in package are named as QWidget, etc
 import PyQt5.QtWidgets as QtWidgets
 import PyQt5.QtGui as QtGui
 
-from .dialogs import RecordValSearchDlg, RecordsViewDlg
+from .dialogs import RecordValSearchDlg, RecordsViewDlg, \
+    NewCampaignDlg, DelCampaignDlg
 from .layout.mainwindow import Ui_MainWindow
 from ..model.lead_model import Model
 
@@ -34,6 +35,14 @@ class MainWin(QMainWindow, Ui_MainWindow):
         self.model = model
         # call to .show() occurs in _complete_gui() method,
         # after controller is set.
+
+    def startup(self):
+        """
+        Performs actions that need to be carried out at beginning of run
+        :return: None
+        """
+        if self.model.campaigns.is_empty:
+            self.show_make_campaign_query_dlg()
 
     @property
     def controller(self):
@@ -64,6 +73,8 @@ class MainWin(QMainWindow, Ui_MainWindow):
         self._setup_translation_table()
         self.show()  # display main window to user
 
+        self.startup()  # perform actions that need to be done at startup
+
     def _setup_tool_bar(self):
         self.actionApplyTranslations.triggered.connect(self.controller.apply)
         self.actionCheck.triggered.connect(self.controller.check)
@@ -74,8 +85,18 @@ class MainWin(QMainWindow, Ui_MainWindow):
         self.sheetsList.setModel(self.model.sheets_model)
         self.sheetsList.contextMenuEvent = self._open_sheet_context_menu
 
+        # set custom display options
+        class ItemDelegate(QStyledItemDelegate):  # one time use class
+            def paint(self, painter, option, index):
+                option.decorationPosition = QStyleOptionViewItem.Right
+                option.decorationAlignment = Qt.AlignLeading | Qt.AlignVCenter
+                super().paint(painter, option, index)
+
+        self.sheetsList.setItemDelegate(ItemDelegate())
+
     def _setup_campaign_list(self):
         self.campaignList.setModel(self.model.campaigns_model)
+        self.campaignList.contextMenuEvent = self._open_campaign_context_menu
 
     def _setup_translation_table(self):
         """
@@ -102,6 +123,10 @@ class MainWin(QMainWindow, Ui_MainWindow):
         # if list is empty, do nothing
         if self.sheetsList.model().is_empty:
             return
+        if len(self.sheetsList.selectedIndexes()) == 0:
+            return  # if user has managed to click the list,
+            # but not an item in it, exit.
+            # This is possible if they click very near the edge
         menu = QMenu(self)
         index = self.sheetsList.selectedIndexes()[0]  # get selected sheet i
         sheet = self.controller.sheet_from_index(index)
@@ -131,6 +156,33 @@ class MainWin(QMainWindow, Ui_MainWindow):
                 lambda: setattr(self.controller, 'tgt_sheet_i', None)
             )
         menu.popup(QtGui.QCursor.pos())
+
+    def _open_campaign_context_menu(self, event):
+        """
+        Method called when user opens the context (right click menu)
+        of a campaign item in the campaigns list.
+        :param event:
+        :return: None
+        """
+
+        menu = QMenu(self)
+
+        new_campaign_action = menu.addAction('New Campaign')
+        new_campaign_action.triggered.connect(self.show_make_campaign_dlg)
+
+        if len(self.campaignList.selectedIndexes()) > 0 and \
+                not self.campaignList.model().is_empty:
+            index = self.campaignList.selectedIndexes()[0]  # get selected i
+            campaign = self.controller.campaign_from_index(index)
+
+            del_campaign_action = menu.addAction(
+                'Delete {}'.format(campaign.name)
+            )
+            del_campaign_action.triggered.connect(
+                lambda: self.show_del_campaign_dlg(campaign)
+            )
+
+        menu.popup(QtGui.QCursor.pos())  # show context menu
 
     # Methods called from controller
 
@@ -230,16 +282,49 @@ class MainWin(QMainWindow, Ui_MainWindow):
         Builds and shows record search dialog.
         :return: None
         """
-        dlg = RecordValSearchDlg(self, self.model)
-        dlg.exec()
+        RecordValSearchDlg(self, self.model).exec()
 
     def show_records_view_dlg(self):
         """
         Builds and shows records view dialog.
         :return: None
         """
-        dlg = RecordsViewDlg(self, self.model)
-        dlg.exec()
+        RecordsViewDlg(self, self.model).exec()
+
+    def show_make_campaign_query_dlg(self):
+        """
+        Shows user a query informing them that no campaigns currently
+        exist and asking them if they wish to create one now.
+        :return: None
+        """
+        title = 'Create Campaign?'
+        main = 'No campaigns currently exist. Would you like to create '  \
+               'one now?'
+        info = 'Campaigns store settings and preferences, so that ' \
+               'settings from previous translations can be auto-completed, ' \
+               'and records can be grouped'
+        dlg = QMessageBox(QMessageBox.Question, title, main)
+        dlg.setInformativeText(info)
+        dlg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        dlg.setStyleSheet(self.styleSheet())
+        result = dlg.exec()
+        if result == QMessageBox.Yes:
+            self.show_make_campaign_dlg()
+
+    def show_make_campaign_dlg(self):
+        name = NewCampaignDlg(self, self.model).exec()
+        if name:
+            self.controller.new_campaign(name)
+
+    def show_del_campaign_dlg(self, campaign):
+        dlg = DelCampaignDlg(self.controller, self, campaign)
+        dlg.setStyleSheet(self.styleSheet())
+        if not dlg.exec():
+            return
+        elif dlg.confirmed:
+            self.controller.del_campaign(campaign)
+
+    # generic dialogs
 
     def show_info_dlg(self, title, main, info=None, detail=None):
         msg = QMessageBox(QMessageBox.Information, title, main)

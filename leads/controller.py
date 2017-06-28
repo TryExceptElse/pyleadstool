@@ -1,3 +1,4 @@
+from .model.campaign import Campaign
 from .model.lead_model import Model
 from .model.translation import Translation, ColumnTranslation
 from .model.display_models import TranslationTableModel
@@ -140,32 +141,6 @@ class Controller:
             if sheet is goal_sheet:
                 return self.model.sheets_model.index(r, 0)
 
-    def deselect_as_src_i(self, index):
-        """
-        Clears sheet at passed index, so that it is no longer src.
-        If passed index is not src sheet, does nothing.
-        :param index: QIndex
-        :return: None
-        """
-        sheet_item = self._sheet_item_from_index(index)
-        sheet = self.sheet_from_index(index)
-        if sheet is self.model.source_sheet:
-            self.model.source_sheet = None
-            sheet_item.clear_mark()
-
-    def deselect_as_tgt_i(self, index):
-        """
-        Clears sheet at passed index, so that it is no longer tgt.
-        If passed index is not tgt sheet, does nothing.
-        :param index: QIndex
-        :return: None
-        """
-        sheet_item = self._sheet_item_from_index(index)
-        sheet = self.sheet_from_index(index)
-        if sheet is self.model.target_sheet:
-            self.model.target_sheet = None
-            sheet_item.clear_mark()
-
     def _sheet_item_from_index(self, i):
         return self.model.sheets_model.itemFromIndex(i)
 
@@ -174,6 +149,24 @@ class Controller:
         sheet_id = sheet_item.sheet_id
         sheet = self.model.office_model[sheet_id]
         return sheet
+
+    # campaign creation / edit / etc methods
+
+    def new_campaign(self, name: str):
+        campaign = Campaign(name)
+        self.model.campaigns.add_campaign(campaign)
+        campaign.save()
+        self.model.campaign = campaign  # set new campaign as active campaign
+        self.model.campaigns_model.update()  # update displayed campaigns list
+
+    def del_campaign(self, campaign: 'Campaign'):
+        del self.model.campaigns[campaign.name]
+        self.model.campaigns_model.update()
+
+    def campaign_from_index(self, index) -> 'Campaign':
+        campaign_item = self.model.campaigns_model.itemFromIndex(index)
+        campaign = campaign_item.item
+        return campaign
 
     # update / utility methods
 

@@ -27,6 +27,36 @@ class CampaignCollection:
     def __iter__(self):
         return self.campaigns
 
+    def __delitem__(self, campaign: 'Campaign' or str):
+        try:
+            name = campaign.name
+        except AttributeError:
+            name = campaign
+        path = os.path.join(self.path, name) + CAMPAIGN_FILE_EXT
+        try:
+            os.remove(path)
+        except IOError or FileNotFoundError:
+            pass
+
+    @property
+    def is_empty(self):
+        """
+        Gets whether or not collection is empty.
+        :return: bool
+        """
+        return not len([f for f in os.listdir(self.path) if
+                        f.endswith(CAMPAIGN_FILE_EXT)]) > 0
+
+    def add_campaign(self, campaign: 'Campaign'):
+        """
+        Adds campaign to this collection.
+        :return: None
+        """
+        # saves campaign into this collection's directory and sets
+        # campaign's dir path attr
+        campaign.dir_path = self.path
+        campaign.save()
+
     @property
     def campaigns(self):
         # find each file in path that has appropriate ending
@@ -34,16 +64,36 @@ class CampaignCollection:
             if not file_name.endswith(CAMPAIGN_FILE_EXT):
                 continue
             with open(os.path.join(self.path, file_name)) as f:
-                yield Campaign.from_file(f)
+                campaign = Campaign.from_file(f)
+                campaign.dir_path = self.path
+                yield campaign
 
 
 class Campaign:
     """
     Object handling a specific campaign entry in db
     """
-    def __init__(self, name, settings=None):
+    def __init__(self, name, dir_path=None, settings=None):
         self.name = name
+        self.dir_path = dir_path
         self.settings = settings if settings else {}
+
+    # save / load
+
+    def save(self, dir_path=None):
+        """
+        Saves to previously set path
+        :return: None
+        """
+        if dir_path is None:
+            dir_path = self.dir_path
+        if dir_path is None:  # if dir path is still None
+            raise ValueError('No dir path has been set for Campaign and none'
+                             'was passed to save method.')
+        f_path = os.path.join(dir_path, self.name) + CAMPAIGN_FILE_EXT
+        # save to path
+        with open(f_path, 'w+') as f:
+            self.to_file(f)
 
     @classmethod
     def from_dict(cls, d: dict):

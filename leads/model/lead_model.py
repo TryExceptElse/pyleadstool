@@ -10,7 +10,8 @@ from .campaign import CampaignCollection, \
     SETTINGS_WHITESPACE_KEY, SETTINGS_DUP_KEY
 from .records import RecordCollection
 from .sheets import Office
-from settings import APP_DATA_DIR, DB_FILE_PATH, CAMPAIGNS_PATH
+from .pref import Preferences
+from settings import APP_DATA_DIR, DB_FILE_PATH, CAMPAIGNS_PATH, PREF_PATH
 
 TRANSLATION_TABLE_NAME = 'Translation'
 
@@ -46,6 +47,7 @@ class Model:
             os.mkdir(author_path)
         if not os.path.exists(self.path):
             os.mkdir(self.path)  # create app dir if it does not already exist
+        self.pref = Preferences(PREF_PATH)
         self.campaigns = CampaignCollection(CAMPAIGNS_PATH)
         self.records = RecordCollection(DB_FILE_PATH)
         self.campaign = None  # currently selected campaign
@@ -55,7 +57,7 @@ class Model:
         self.target_sheet_start = None
         self.assoc_table_model = TranslationTableModel(self)
         self.sheets_model = SheetListModel(self.office_model)
-        self.campaigns_model = CampaignListModel(self)
+        self.campaigns_model = CampaignListModel(self.campaigns)
 
     @property
     def whitespace_action(self):

@@ -11,7 +11,7 @@ class Preferences:
         self.d = {}
         try:
             self.load()
-        except json.decoder.JSONDecodeError or IOError:
+        except FileNotFoundError:
             pass  # if file is unreadable, just use empty settings dict
 
     def __getitem__(self, k):

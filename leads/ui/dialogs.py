@@ -9,6 +9,8 @@ from .layout.record_entry_view import Ui_Dialog as RecordEntryViewLayout
 from .layout.record_val_search import Ui_Dialog as RecordValSearchLayout
 from .layout.record_view import Ui_Dialog as RecordViewLayout
 from .layout.records import Ui_Dialog as RecordsViewLayout
+from .layout.campaign_new import Ui_Dialog as NewCampaignLayout
+from .layout.campaign_del import Ui_Dialog as DelCampaignLayout
 
 
 class LeadsDialog(QDialog):
@@ -87,3 +89,87 @@ class RecordsViewDlg(LeadsDialog, RecordsViewLayout):
         self.setupUi(self)
         self.setWindowTitle(self.window_title)
         self.endDate.setDateTime(datetime.datetime.now())
+
+
+# CAMPAIGN DIALOGS
+
+
+class NewCampaignDlg(LeadsDialog, NewCampaignLayout):
+    """
+    Dialog prompting user to input name of new campaign to be created
+    """
+    window_title = 'New Campaign'
+
+    def __init__(self, controller, model):
+        super().__init__(controller, model)
+        self.setupUi(self)
+        self.setWindowTitle(self.window_title)
+
+    def exec(self):
+        super().exec()
+        name = self.nameField.text()
+        return name if name else False
+
+
+class DelCampaignDlg(LeadsDialog, DelCampaignLayout):
+    """
+    Dialog prompting user to confirm that they wish to delete a
+    campaign by entering the campaign's name and then pressing
+    """
+    window_title = 'Delete Campaign?'
+
+    def __init__(self, controller, model, campaign):
+        super().__init__(controller, model)
+        self.campaign = campaign
+        self._accepted = False
+        self.setupUi(self)
+        self.setWindowTitle(self.window_title)
+
+        # format text for widgets that need the campaign name to be inserted.
+        [widget.setText(widget.text().format(campaign.name)) for
+         widget in (self.mainLabel, self.delButton)]
+        self.nameField.setPlaceholderText(campaign.name)
+
+        # connect buttons
+        self.delButton.clicked.connect(self._delete_btn_pressed)
+        self.cancelButton.clicked.connect(self.close)
+
+    def _delete_btn_pressed(self):
+        if self.nameField.text() == '':
+            # create dialog informing user that no text was entered.
+            title = 'No name entered.'
+            main = 'The name field was left blank.\nTo ensure that the' \
+                   'correct campaign is being deleted, type the name of' \
+                   'the campaign to be deleted into the name field.'
+            dlg = QMessageBox(QMessageBox.Information, title, main)
+            dlg.setStyleSheet(self.styleSheet())
+            dlg.exec()
+            return
+        elif self.nameField.text() != self.campaign.name:
+            # create dialog informing user that the two did not match
+            title = 'Names did not Match'
+            main = 'The campaign name entered did not match the name ' \
+                'of the campaign to be deleted'
+            dlg = QMessageBox(QMessageBox.Information, title, main)
+            dlg.setStyleSheet(self.styleSheet())
+            dlg.exec()
+            return
+        else:
+            self.accept()
+
+    def accept(self):
+        """
+        Called when user hits enter while in dialog, or when 'Delete'
+        is pressed.
+        :return: None
+        """
+        self._accepted = True  # leave marker for use by confirmed property
+        super().accept()
+
+    @property
+    def confirmed(self):
+        """
+        Returns true if user has confirmed deletion.
+        :return: bool
+        """
+        return self.nameField.text() == self.campaign.name and self._accepted

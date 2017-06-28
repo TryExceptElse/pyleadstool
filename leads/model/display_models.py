@@ -28,6 +28,7 @@ class UpdatingListModel(QStandardItemModel):
     def __init__(self, parent):
         super().__init__(parent)
         self.current_items = set()
+        self._empty = None
         self.update()
         # start watcher thread
         self.update_thread = Thread(
@@ -41,7 +42,7 @@ class UpdatingListModel(QStandardItemModel):
         :return: None
         """
         while True:
-            sleep(60 / UPDATE_CHECK_RATE)
+            sleep(1 / UPDATE_CHECK_RATE)
             self.update()
 
     def item_getter(self):
@@ -63,6 +64,29 @@ class UpdatingListModel(QStandardItemModel):
         """
         raise NotImplementedError
 
+    @property
+    def is_empty(self):
+        """
+        Returns boolean indicating whether this model contains items
+        representing open sheets.
+        :return: bool
+        """
+        return self._empty
+
+    @property
+    def _is_empty(self):
+        return self._empty
+
+    @_is_empty.setter
+    def _is_empty(self, b):
+        if b and not self._empty:
+            self.clear()
+            self.appendRow(self.EmptyListMarkerItem())
+            self._empty = True
+        elif not b and self._empty:
+            self.clear()
+            self._empty = False
+
     def update(self) -> None:
         """
         Updates model with new items and removes old ones.
@@ -71,17 +95,29 @@ class UpdatingListModel(QStandardItemModel):
         new_item_set = set(self.item_getter())
         if len(new_item_set) == 0:
             # if set is empty, place marker for user
-            self.clear()
-            self.appendRow(self.EmptyListMarkerItem())
-        # add each item in new items that is not in current_items
-        for model_item in self.children():
-            assert isinstance(model_item, self.UpdatingModelItem)
-            if model_item.item not in new_item_set:
-                self.removeRow(model_item)
+            self._is_empty = True
+            return
+        else:
+            self._is_empty = False
+        changed = False
         # remove each item in current items that is not in new items
-        for item in self.current_items:
-            if item not in new_item_set:
-                self.appendRow(self.factory(item))
+        for row_index in range(self.rowCount()):
+            row = self.itemFromIndex(self.index(row_index, 0))
+            if row is None:
+                continue
+            assert isinstance(row, self.UpdatingModelItem), row
+            if row.item not in new_item_set:
+                self.removeRow(row_index)
+                self.current_items.remove(row.item)
+                changed = True
+        # add each item in new items that is not in current_items
+        for item in new_item_set:
+            if item not in self.current_items:
+                self.current_items.add(item)
+                self.appendRow(self.item_class(item))
+                changed = True
+        if changed:
+            self.sort(0)  # sort based on row 0? (uncertain)
 
     class UpdatingModelItem(QStandardItem):
         def __init__(self, item):
@@ -96,6 +132,8 @@ class UpdatingListModel(QStandardItemModel):
         def __init__(self):
             super().__init__()
             self.setText('No Items')
+
+    item_class = UpdatingModelItem
 
 
 class SheetListModel(QStandardItemModel):
@@ -249,6 +287,8 @@ class CampaignListModel(UpdatingListModel):
         def __init__(self, campaign):
             super().__init__(campaign)
             self.setText(campaign.name)
+
+    item_class = CampaignItem
 
 
 class TranslationTableModel(QAbstractTableModel):

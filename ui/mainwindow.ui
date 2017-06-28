@@ -111,8 +111,8 @@ QLineEdit:hover {
 
 /* LIST */
 
-QListView::item:selected {
-    background-color: rgba(0, 240, 120, 120)
+QListView::item:selected{
+	background-color:  rgb(131, 175, 255);
 }
 
 /* MESSAGE BOX */
@@ -148,8 +148,11 @@ QMenu::item:selected{
 
 QPushButton{
      background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(193, 193, 193, 120));
-    padding-left: 4px;
-    padding-right: 4px;
+    padding-left: 8px;
+    padding-right: 8px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+	font: 12pt &quot;Lato&quot;;
 }
 
 QPushButton:hover{
