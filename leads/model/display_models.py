@@ -114,7 +114,7 @@ class UpdatingListModel(QStandardItemModel):
         for item in new_item_set:
             if item not in self.current_items:
                 self.current_items.add(item)
-                self.appendRow(self.item_class(item))
+                self.appendRow(self.factory(item))
                 changed = True
         if changed:
             self.sort(0)  # sort based on row 0? (uncertain)
@@ -132,8 +132,6 @@ class UpdatingListModel(QStandardItemModel):
         def __init__(self):
             super().__init__()
             self.setText('No Items')
-
-    item_class = UpdatingModelItem
 
 
 class SheetListModel(QStandardItemModel):
@@ -287,8 +285,6 @@ class CampaignListModel(UpdatingListModel):
         def __init__(self, campaign):
             super().__init__(campaign)
             self.setText(campaign.name)
-
-    item_class = CampaignItem
 
 
 class TranslationTableModel(QAbstractTableModel):
