@@ -97,6 +97,8 @@ class MainWin(QMainWindow, Ui_MainWindow):
     def _setup_campaign_list(self):
         self.campaignList.setModel(self.model.campaigns_model)
         self.campaignList.contextMenuEvent = self._open_campaign_context_menu
+        self.campaignList.doubleClicked.connect(
+            self.campaign_list_double_clicked)
 
     def _setup_translation_table(self):
         """
@@ -173,8 +175,9 @@ class MainWin(QMainWindow, Ui_MainWindow):
         if len(self.campaignList.selectedIndexes()) > 0 and \
                 not self.campaignList.model().is_empty:
             index = self.campaignList.selectedIndexes()[0]  # get selected i
-            campaign = self.controller.campaign_from_index(index)
+            campaign = self.model.campaigns_model.el_from_index(index)
 
+            # delete action
             del_campaign_action = menu.addAction(
                 'Delete {}'.format(campaign.name)
             )
@@ -182,7 +185,34 @@ class MainWin(QMainWindow, Ui_MainWindow):
                 lambda: self.show_del_campaign_dlg(campaign)
             )
 
+            # set as active
+            set_active_action = menu.addAction(
+                'Set as Active Campaign'
+            )
+            set_active_action.triggered.connect(
+                lambda: setattr(self.controller, 'active_campaign_i', index)
+            )
+
+            # unset as active (if currently active)
+            if campaign is self.model.campaign:
+                unset_as_active_action = menu.addAction('Unset as Active')
+                unset_as_active_action.triggered.connect(
+                    lambda: setattr(self.controller, 'active_campaign_i', None)
+                )
+
         menu.popup(QtGui.QCursor.pos())  # show context menu
+
+    # user action event methods
+
+    def campaign_list_double_clicked(self):
+        try:
+            # get currently selected index
+            index = self.campaignList.selectedIndexes()[0]
+        except IndexError:
+            pass
+        else:
+            # set retrieved index as active campaign index
+            self.controller.active_campaign_i = index
 
     # Methods called from controller
 

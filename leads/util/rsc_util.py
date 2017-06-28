@@ -6,5 +6,5 @@ import os
 import settings
 
 
-def get_icon_path(*path_elements):
+def get_resource(*path_elements):
     return os.path.join(settings.RESOURCE_PATH, *path_elements)

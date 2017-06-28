@@ -131,6 +131,31 @@ class UpdatingListModel(QStandardItemModel):
         if changed:
             self.sort(0)  # sort based on row 0? (uncertain)
 
+    def index_from_item(self, item):
+        for r in range(self.rowCount()):
+            if item == self.item(r):
+                return QModelIndex(r, 0)
+
+    def index_from_element(self, e):
+        for r in range(self.rowCount()):
+            item = self.item(r)
+            e2 = item.item
+            if e == e2:
+                index = self.index(r, 0)
+                return index
+
+    def index_from_comp_val(self, comp_val):
+        for r in range(self.rowCount()):
+            item = self.item(r)
+            el = item.item  # element stored within list item
+            el_comp_val = self.comp_accessor(el)
+            if comp_val == el_comp_val:
+                index = self.index(r, 0)
+                return index
+
+    def el_from_index(self, index):
+        return self.itemFromIndex(index).item
+
     class UpdatingModelItem(QStandardItem):
         def __init__(self, item):
             super().__init__()
@@ -256,14 +281,14 @@ class SheetListModel(QStandardItemModel):
             Gives this item an icon marking it as a data source.
             :return: None
             """
-            self.setIcon(QIcon(rsc.get_icon_path('sheet-src-16')))
+            self.setIcon(QIcon(rsc.get_resource('sheet-src-16')))
 
         def mark_as_tgt(self):
             """
             Gives this item an icon marking it as a translation target.
             :return: None
             """
-            self.setIcon(QIcon(rsc.get_icon_path('sheet-tgt-16')))
+            self.setIcon(QIcon(rsc.get_resource('sheet-tgt-16')))
 
         def clear_mark(self):
             """
@@ -301,6 +326,20 @@ class CampaignListModel(UpdatingListModel):
         def __init__(self, campaign):
             super().__init__(campaign)
             self.setText(campaign.name)
+
+        def mark_as_current(self):
+            """
+            Marks item as currently active campaign item
+            :return: None
+            """
+            self.setIcon(QIcon(rsc.get_resource('selected-dot-soft-8.png')))
+
+        def clear_mark(self):
+            """
+            Clears icon applied to this item.
+            :return: None
+            """
+            self.setIcon(QIcon())  # blank
 
 
 class TranslationTableModel(QAbstractTableModel):

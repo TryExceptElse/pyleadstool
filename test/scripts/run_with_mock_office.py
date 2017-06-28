@@ -16,7 +16,7 @@ from test.scripts.mock_office import MockOffice
 
 if __name__ == '__main__':
     app = QApplication([''])  # expects list of strings.
-    app.setWindowIcon(QIcon(rsc_util.get_icon_path('icon-64-arrow-right4')))
+    app.setWindowIcon(QIcon(rsc_util.get_resource('icon-64-arrow-right4')))
     mock_office_model = MockOffice()
     model = Model(office_model=mock_office_model)
     main_win = MainWin(model)

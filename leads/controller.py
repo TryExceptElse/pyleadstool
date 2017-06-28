@@ -163,10 +163,38 @@ class Controller:
         del self.model.campaigns[campaign.name]
         self.model.campaigns_model.update()
 
-    def campaign_from_index(self, index) -> 'Campaign':
-        campaign_item = self.model.campaigns_model.itemFromIndex(index)
-        campaign = campaign_item.item
-        return campaign
+    @property
+    def active_campaign_i(self):
+        """
+        Gets index of active campaign.
+        Not particularly efficient.
+        :return: QModelIndex
+        """
+        campaign = self.model.campaign
+        if campaign is None:
+            return None
+        else:
+            return self.model.campaigns_model.index_from_element(campaign)
+
+    @active_campaign_i.setter
+    def active_campaign_i(self, index):
+        campaigns_model = self.model.campaigns_model
+
+        # clear previous mark if one exists
+        if self.active_campaign_i:
+            current_index = self.active_campaign_i
+            current_item = campaigns_model.itemFromIndex(current_index)
+            current_item.clear_mark()
+
+        # if campaign is being unset (index set to None)...
+        if index is None:
+            self.model.campaign = None
+            return
+
+        # otherwise
+        campaign_list_item = campaigns_model.itemFromIndex(index)
+        campaign_list_item.mark_as_current()
+        self.model.campaign = campaign_list_item.item
 
     # update / utility methods
 
