@@ -27,7 +27,7 @@ class UpdatingListModel(QStandardItemModel):
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.current_items = set()
+        self.current_comparators = set()
         self._empty = None
         self.update()
         # start watcher thread
@@ -54,6 +54,16 @@ class UpdatingListModel(QStandardItemModel):
         :return:
         """
         raise NotImplementedError
+
+    @staticmethod
+    def comp_accessor(item: 'UpdatingModelItem'):
+        """
+        Gets value from item which will be used for comparison purposes
+        between items.
+        Intended to be overridden by subclasses.
+        :return: Any
+        """
+        return item
 
     def factory(self, item):
         """
@@ -92,8 +102,9 @@ class UpdatingListModel(QStandardItemModel):
         Updates model with new items and removes old ones.
         :return: None
         """
-        new_item_set = set(self.item_getter())
-        if len(new_item_set) == 0:
+        new_comp_set = {self.comp_accessor(item): item for
+                        item in set(self.item_getter())}
+        if len(new_comp_set) == 0:
             # if set is empty, place marker for user
             self._is_empty = True
             return
@@ -106,14 +117,15 @@ class UpdatingListModel(QStandardItemModel):
             if row is None:
                 continue
             assert isinstance(row, self.UpdatingModelItem), row
-            if row.item not in new_item_set:
+            comp_val = self.comp_accessor(row.item)
+            if comp_val not in new_comp_set:
                 self.removeRow(row_index)
-                self.current_items.remove(row.item)
+                self.current_comparators.remove(comp_val)
                 changed = True
         # add each item in new items that is not in current_items
-        for item in new_item_set:
-            if item not in self.current_items:
-                self.current_items.add(item)
+        for comp_val, item in new_comp_set.items():
+            if comp_val not in self.current_comparators:
+                self.current_comparators.add(comp_val)
                 self.appendRow(self.factory(item))
                 changed = True
         if changed:
@@ -277,6 +289,10 @@ class CampaignListModel(UpdatingListModel):
 
     def item_getter(self):
         return self.collection.campaigns
+
+    @staticmethod
+    def comp_accessor(campaign):
+        return campaign.name
 
     def factory(self, item):
         return self.CampaignItem(item)
