@@ -1,0 +1,295 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Dialog</class>
+ <widget class="QDialog" name="Dialog">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>300</width>
+    <height>150</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Dialog</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">/* WIDGET + MAINWINDOW/DIALOG STYLE */
+
+QWidget {
+	background-color: rgba(0, 0, 0, 0);
+    border-radius: -0px;
+    padding: 2px;
+	font: 10pt &quot;Lato&quot;;
+}
+
+QWidget#MainWindow, QWidget#Dialog{
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(193, 193, 193));
+}
+
+/* 
+##########################
+OTHERS, SORTED ALPHABETICALLY
+##########################
+/*
+
+/* COMBO BOX */
+
+QComboBox{
+}
+
+QComboBox::drop-down {
+    border-radius: -0px;
+}
+
+QComboBox::down-arrow{
+   background-color: rgba(0, 0, 0, 0);
+	image: url(resources/arrow-down-16.png);
+    border-radius: -0px;
+}
+
+QComboBox:Hover{
+    background-color: rgba(0, 0, 0, 15);
+}
+
+/* DATE-TIME EDIT */
+
+QDateTimeEdit {
+    background-color: rgba(0, 0, 0, 0);
+}
+
+QDateTimeEdit::drop-down{
+    border-radius: -0px;
+}
+
+QDateTimeEdit:hover {
+    background-color: rgba(0, 0, 0, 15);
+}
+
+/* DATE EDIT */
+
+QDateEdit{
+     background-color: qlineargradient(spread:reflect, x2:0.262, y2:0.573773, x1:1, y1:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(220, 223, 220, 250));
+    border-radius: -0px;
+}
+
+QDateEdit:hover{
+      background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(220, 223, 220, 120));
+}
+
+QDateEdit::down-arrow:hover {
+	image: url(noimg);
+}
+
+QDateEdit::down-arrow:hover {
+	image: url(resources/arrow-down-16.png);
+}
+
+/* HORIZONTAL + VERTICAL LINES*/
+
+QFrame[frameShape=&quot;4&quot;], QFrame[frameShape=&quot;5&quot;]{
+	background-color: rgba(8, 120, 0, 255);
+}
+
+/* LABEL */
+
+QLabel {
+	background-color: qlineargradient(spread:reflect, x1:0.607246, y1:0.346, x2:0.623037, y2:1, stop:0 rgba(8, 120, 0, 0), stop:1 rgba(15, 76, 0, 0));
+	font: 12pt &quot;Lato&quot;;
+    color: rgb(24, 24, 24);
+}
+
+/* LINE EDIT */
+
+QLineEdit {
+    background-color: rgba(0, 0, 0, 00);
+}
+
+QLineEdit:hover {
+    background-color: rgba(0, 0, 0, 15);
+}
+
+/* LIST */
+
+QListView::item:selected{
+	background-color:  rgb(131, 175, 255);
+}
+
+/* MESSAGE BOX */
+
+QMessageBox{
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(220, 220, 220));
+}
+
+/* MENU */
+
+QMenuBar {
+    border-radius: 1px;
+	background-color: qlineargradient(spread:reflect, x1:0.607246, y1:0.346, x2:0.623037, y2:1, stop:0 rgba(8, 120, 0, 255), stop:1 rgba(15, 76, 0, 255));
+    color: rgb(240, 240, 240);
+}
+
+QMenu {
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(255, 255, 255), stop:1 rgb(230, 230, 230));
+    color: rgb(12, 12, 12);
+}
+
+QMenu::item:hover{
+    background-color: rgba(0, 0, 0, 15);
+    color: rgb(12, 12, 12);
+}
+
+QMenu::item:selected{
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgb(230, 230, 230), stop:1 rgb(255, 255, 255));
+    color: rgb(12, 12, 12);
+}
+
+/* PUSH BUTTON */
+
+QPushButton{
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(193, 193, 193, 120));
+    padding-left: 8px;
+    padding-right: 8px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    border-radius: 3px;
+	font: 12pt &quot;Lato&quot;;
+}
+
+QPushButton:hover{
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(240, 243, 240, 120));
+    color: rgb(50, 50, 50);
+}
+
+QPushButton:pressed{
+     background-color: qlineargradient(spread:reflect, x2:0.262, y2:0.573773, x1:1, y1:1, stop:0 rgba(255, 255, 255, 255), stop:1 rgba(220, 223, 220, 120));
+}
+
+/* STATUS BAR */
+
+QStatusBar {
+    border-radius: 1px;
+	background-color: qlineargradient(spread:reflect, x1:0.607246, y1:0.346, x2:0.623037, y2:1, stop:0 rgba(8, 120, 0, 255), stop:1 rgba(15, 76, 0, 255));
+    color: rgb(240, 240, 240);
+}
+
+/* TABLE + HEADER STYLES */
+
+QTableWidget{
+    color: rgba(0, 0, 0, 0);
+    background-color: rgba(0, 0, 0, 0);
+    alternate-background-color: rgba(0,0,0,20);
+}
+
+QTableView{
+    color: rgba(0, 0, 0, 0);
+    background-color: rgba(0, 0, 0, 0);
+    alternate-background-color: rgba(0,0,0,15);
+}
+
+QHeaderView::section{
+    border-radius: 4px solid black;
+	font: 10pt &quot;Lato&quot;;
+    min-width: 180; 
+    min-height: 32;
+}
+
+QHeaderView {
+    border-radius: 4px solid black;
+    min-height: 16;
+}
+
+QTableCornerButton::section  {
+	background-color: rgba(0, 0, 0, 0);
+}
+
+/* TOOL TIP */
+
+QToolTip{
+     background-color: qlineargradient(spread:reflect, x1:0.262, y1:0.573773, x2:1, y2:1, stop:0 rgba(255, 255, 255, 130), stop:1 rgba(230, 230, 230, 130));
+    border-radius: -0px;
+}</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <widget class="QLabel" name="label">
+     <property name="text">
+      <string>Enter name for new campaign:</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="Line" name="line">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLineEdit" name="nameField">
+     <property name="placeholderText">
+      <string>Campaign Name</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <spacer name="spacer">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>20</width>
+       <height>40</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+   <item>
+    <widget class="QDialogButtonBox" name="buttonBox">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+     <property name="standardButtons">
+      <set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections>
+  <connection>
+   <sender>buttonBox</sender>
+   <signal>accepted()</signal>
+   <receiver>Dialog</receiver>
+   <slot>accept()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>248</x>
+     <y>254</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>157</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>buttonBox</sender>
+   <signal>rejected()</signal>
+   <receiver>Dialog</receiver>
+   <slot>reject()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>316</x>
+     <y>260</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>286</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+</ui>
