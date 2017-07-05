@@ -13,6 +13,7 @@ from .layout.mainwindow import Ui_MainWindow
 from ..model.lead_model import Model
 
 # Constants used in GUI
+WINDOW_TITLE = 'Leads Translator'
 
 WHITESPACE_REMOVE_STR = 'Remove Whitespace'
 WHITESPACE_HIGHLIGHT_STR = 'Highlight'
@@ -33,8 +34,8 @@ class MainWin(QMainWindow, Ui_MainWindow):
         self.setupUi(self)  # apply layout to this main window
         self._controller = None
         self.model = model
+        # setting controller results in _complete_gui() being called
         # call to .show() occurs in _complete_gui() method,
-        # after controller is set.
 
     def startup(self):
         """
@@ -67,6 +68,7 @@ class MainWin(QMainWindow, Ui_MainWindow):
         self._complete_gui()
 
     def _complete_gui(self):
+        self.setWindowTitle(WINDOW_TITLE)
         self._setup_tool_bar()
         self._setup_sheet_list()
         self._setup_campaign_list()
@@ -177,20 +179,20 @@ class MainWin(QMainWindow, Ui_MainWindow):
             index = self.campaignList.selectedIndexes()[0]  # get selected i
             campaign = self.model.campaigns_model.el_from_index(index)
 
-            # delete action
-            del_campaign_action = menu.addAction(
-                'Delete {}'.format(campaign.name)
-            )
-            del_campaign_action.triggered.connect(
-                lambda: self.show_del_campaign_dlg(campaign)
-            )
-
             # set as active
             set_active_action = menu.addAction(
                 'Set as Active Campaign'
             )
             set_active_action.triggered.connect(
                 lambda: setattr(self.controller, 'active_campaign_i', index)
+            )
+
+            # delete action
+            del_campaign_action = menu.addAction(
+                'Delete {}'.format(campaign.name)
+            )
+            del_campaign_action.triggered.connect(
+                lambda: self.show_del_campaign_dlg(campaign)
             )
 
             # unset as active (if currently active)
@@ -272,7 +274,7 @@ class MainWin(QMainWindow, Ui_MainWindow):
             n_rows_w_duplicates = len(set(
                 [pos[1] for pos in duplicate_positions]))
             info_string = '%s Cell rows containing duplicate ' \
-                               'values were removed' % n_rows_w_duplicates
+                'values were removed' % n_rows_w_duplicates
         self.show_info_dlg(
             title='Duplicate Values',
             main='%s Duplicate cell values found' % len(duplicate_positions),
