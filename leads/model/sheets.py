@@ -27,25 +27,42 @@
 try:
     import logging
     import time
-    import multiprocessing
+    import multiprocessing as mp
+    import multiprocessing.pool as mp_pool
+    import threading
+    import subprocess
 
     try:
         import xlwings as xw
     except ImportError as e:
         xw = None
-        logging.info('xlwings is not installed or could not be imported: %s' % e)
+        logging.info(
+            'xlwings is not installed or could not be imported: %s' % e)
 
     try:
         import pythoncom
     except ImportError as e:
         pythoncom = None
-        logging.info('pythoncom is not installed or could not be imported: %s' % e)
+        logging.info(
+            'pythoncom is not installed or could not be imported: %s' % e)
+
+    try:
+        import pyoo
+    except ImportError as e:
+        pyoo = None
+        logging.info(
+            'pyoo is not installed or could not be imported: %s' % e)
+
 
 except ImportError:
     logging = None
     time = None
     xlwings = None
     pythoncom = None
+    mp = None
+    mp_pool = None
+    threading = None
+    subprocess = None
 
 MAX_CELL_GAP = 10  # max distance between inhabited cells in the workbook
 CACHING = True  # whether or not cells should cache accessed values
@@ -949,6 +966,7 @@ class Line(WorkBookComponent):
     Sub-classed by both Row and Column
     """
     _all = {}  # overwritten in sub-classes.
+    _can_bulk_access = False
 
     def __init__(
         self,
@@ -1055,9 +1073,14 @@ class Line(WorkBookComponent):
         # specific subclasses
 
     def get_cell_by_reference(self, reference: str or float or int) -> 'Cell':
-        for i, cell in enumerate(self._reference_line):
-            if cell.value == reference:
-                return self.get_cell_by_index(i)
+        if self._can_bulk_access:  # if we can quickly get the entire row
+            for i, v in self.values:
+                if v == reference:
+                    return self.get_cell_by_index(i)
+        else:  # otherwise...
+            for i, cell in enumerate(self._reference_line):
+                if cell.value == reference:
+                    return self.get_cell_by_index(i)
 
     def get_iterator(self, axis: str) -> 'CellLine':
         assert axis == 'x' or axis == 'y'
@@ -1073,6 +1096,12 @@ class Line(WorkBookComponent):
         """
         [cell.clear() for i, cell in enumerate(self)
          if i > self.name_cell_index or include_header]
+
+    @property
+    def values(self):
+        return tuple(cell.value for cell in self)
+        # should be overridden in subclasses that can more efficiently
+        # access values in bulk
 
     @property
     def _reference_line(self) -> 'Line':
@@ -1548,10 +1577,8 @@ class Interface:
 
 class Office(Model):
     """
-    Handles interface with workbook.
-
-    This may not need to be a class, but any independent functions appear
-    as their own macro, so this is instead its own class
+    Handles interface with workbook, and stores the different Office
+    interface classes.
 
     If instantiated, provides methods for finding and using models or
     sheets from different office programs. In this use, it can be
@@ -1632,6 +1659,85 @@ class Office(Model):
             result = interface[item]
             if result is not None:
                 return result
+
+    # DECORATORS FOR INTERFACES
+
+    _worker_pool = None
+
+    _thread_local = threading.local()
+
+    _worker_threads = set()  # for checking if current thread is a worker
+
+    @classmethod
+    def in_pool(cls, async: bool = False, thread_init=None):
+        """
+        Returns a decorator that modifies a method to run in pool.
+        :param async: boolean indicating whether or not result should be
+        waited for.
+        :param thread_init: method called when worker thread is first used.
+        :return: decorator callable
+        """
+
+        def decorator(func):
+            """
+            Decorator that modifies method so that it is run in a
+            separate worker thread.
+            :arg func: callable
+            :return: callable func
+            """
+
+            def wrapper(*args, **kwargs):
+                """
+                Calls wrapped function in a worker thread.
+
+                If function call is not intended to be asynchronous,
+                and the call was made from a worker thread, the
+                function will simply be called in the current worker
+                thread.
+
+                :param args: any
+                :param kwargs: any
+                :return: None if async, otherwise any
+                """
+                pool = cls._get_pool()
+                assert isinstance(pool, mp_pool.ThreadPool)
+                this_thread = threading.current_thread()
+
+                # if not async and called from a worker thread, just
+                # call the function and return result
+                if not async and this_thread in cls._worker_threads:
+                    return func(*args, **kwargs)
+
+                # otherwise, prepare a function to be run in a worker
+                # thread.
+                def parallel_func():
+                    if thread_init and not \
+                            getattr(cls._thread_local, 'initialized', False):
+                        cls._worker_threads.add(this_thread)
+                        thread_init()  # initialize thread
+
+                        setattr(cls._thread_local, 'initialized', True)
+
+                    return func(*args, **kwargs)
+                if async:
+                    pool.apply_async(parallel_func)
+                else:
+                    result = pool.apply_async(parallel_func)
+                    return result.get()
+
+            # make debugging a bit easier
+            wrapper.__name__ = func.__name__  # rename wrapper to wrapped func
+            return wrapper
+
+        return decorator
+
+    @classmethod
+    def _get_pool(cls):
+        if cls._worker_pool is None:
+            cls._worker_pool = mp_pool.ThreadPool(mp.cpu_count())
+        return cls._worker_pool
+
+    # INTERFACE CLASSES
 
     class XW(Interface):
         """
@@ -1943,6 +2049,58 @@ class Office(Model):
                     return string
                 else:
                     return ''
+
+    class Pyoo(Interface):
+        """
+        Handles connection to a running open-office program
+        """
+
+        class Model(Model):
+
+            pipe_name = 'leadstool_connection'
+
+            connection_subprocess_args = (
+                'soffice',
+                '--accept="pipe,name={};urp;"'.format(pipe_name),
+                '--norestore',
+                '--nologo',
+                '--nodefault #',
+                '--headless'
+            )
+
+            def __init__(self) -> None:
+                # open connection
+                subprocess.run(self.connection_subprocess_args)
+                # using pyoo nomenclature, desktop is the base
+                # connection obj.
+                self.desktop = pyoo.Desktop(pipe=self.pipe_name)
+
+            @property
+            def has_connection(self):
+                pass
+
+            def __iter__(self):
+                pass
+
+            def get_sheet(self, sheet_name: str, row_ref_i: int = 0,
+                          col_ref_i: int = 0) -> 'Sheet':
+                pass
+
+            def sheet_exists(self, *sheet_name: str) -> str:
+                pass
+
+            @property
+            def sheets(self):
+                pass
+
+            def __getitem__(self, item: str or int):
+                pass
+
+            @property
+            def sheet_names(self):
+                pass
+
+
 
     class Uno(Interface):
         """
