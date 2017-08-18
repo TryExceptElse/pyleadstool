@@ -64,6 +64,8 @@ except ImportError:
     threading = None
     subprocess = None
 
+    threadutil = None
+
 MAX_CELL_GAP = 10  # max distance between inhabited cells in the workbook
 CACHING = True  # whether or not cells should cache accessed values
 NONE_STRING = '< Empty >'
@@ -1660,83 +1662,6 @@ class Office(Model):
             if result is not None:
                 return result
 
-    # DECORATORS FOR INTERFACES
-
-    _worker_pool = None
-
-    _thread_local = threading.local()
-
-    _worker_threads = set()  # for checking if current thread is a worker
-
-    @classmethod
-    def in_pool(cls, async: bool = False, thread_init=None):
-        """
-        Returns a decorator that modifies a method to run in pool.
-        :param async: boolean indicating whether or not result should be
-        waited for.
-        :param thread_init: method called when worker thread is first used.
-        :return: decorator callable
-        """
-
-        def decorator(func):
-            """
-            Decorator that modifies method so that it is run in a
-            separate worker thread.
-            :arg func: callable
-            :return: callable func
-            """
-
-            def wrapper(*args, **kwargs):
-                """
-                Calls wrapped function in a worker thread.
-
-                If function call is not intended to be asynchronous,
-                and the call was made from a worker thread, the
-                function will simply be called in the current worker
-                thread.
-
-                :param args: any
-                :param kwargs: any
-                :return: None if async, otherwise any
-                """
-                pool = cls._get_pool()
-                assert isinstance(pool, mp_pool.ThreadPool)
-                this_thread = threading.current_thread()
-
-                # if not async and called from a worker thread, just
-                # call the function and return result
-                if not async and this_thread in cls._worker_threads:
-                    return func(*args, **kwargs)
-
-                # otherwise, prepare a function to be run in a worker
-                # thread.
-                def parallel_func():
-                    if thread_init and not \
-                            getattr(cls._thread_local, 'initialized', False):
-                        cls._worker_threads.add(this_thread)
-                        thread_init()  # initialize thread
-
-                        setattr(cls._thread_local, 'initialized', True)
-
-                    return func(*args, **kwargs)
-                if async:
-                    pool.apply_async(parallel_func)
-                else:
-                    result = pool.apply_async(parallel_func)
-                    return result.get()
-
-            # make debugging a bit easier
-            wrapper.__name__ = func.__name__  # rename wrapper to wrapped func
-            return wrapper
-
-        return decorator
-
-    @classmethod
-    def _get_pool(cls):
-        if cls._worker_pool is None:
-            cls._worker_pool = mp_pool.ThreadPool(mp.cpu_count())
-        return cls._worker_pool
-
     # INTERFACE CLASSES
 
     class XW(Interface):
@@ -1821,6 +1746,9 @@ class Office(Model):
             def _xw_sheets(self):
                 """
                 Yields each found xw sheet object in model
+                Weird implementation here to make it align with
+                PyUno interface. This returns all sheets in all
+                books open.
                 :return: XW Sheet iterator
                 """
                 for xw_book in self.books:
@@ -1831,9 +1759,6 @@ class Office(Model):
             def sheets(self):
                 """
                 Generator returning each sheet in Model.
-                Weird implementation here to make it align with
-                PyUno interface. This returns all sheets in all
-                books open.
                 :return: Sheet
                 """
                 for xw_sheet in self._xw_sheets:

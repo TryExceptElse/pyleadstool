@@ -1,10 +1,6 @@
 """
 
 """
-try:
-    import pythoncom
-except ImportError:
-    pythoncom = None
 
 from threading import Thread
 from time import sleep
@@ -182,30 +178,14 @@ class SheetListModel(QStandardItemModel):
         self.sheet_names = set()
         self._connected = None
 
-        # if xlwings is being used, all update calls must be from
-        # the same thread, thanks to py-win32
-        # start watcher thread
-        self.update_thread = Thread(
-            target=self.watch_for_updates, daemon=True
-        )
-        self.update_thread.start()
+        # set up timer that repeatedly updates list
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update)
+        self.timer.start(int(1000 / UPDATE_CHECK_RATE))
 
     def clear(self):
         super().clear()
         self.sheet_names.clear()
-
-    def watch_for_updates(self):
-        try:
-            # py-win32 needs to have this called before being used
-            # from threads
-            if pythoncom:
-                pythoncom.CoInitialize()
-            while True:
-                self.update()
-                sleep(1 / UPDATE_CHECK_RATE)
-        finally:
-            if pythoncom:
-                pythoncom.CoUninitialize()
 
     def update(self):
         if self.office_model is not None and self.office_model.has_connection:
@@ -421,7 +401,7 @@ class TranslationTableModel(QAbstractTableModel):
                 new_entry = self.ColEntry(tgt_col, self.model)
                 new_entry_list.append(new_entry)
 
-        [entry.update for entry in new_entry_list]
+        [entry.update() for entry in new_entry_list]
         self._translation_entries = new_entry_list
 
     @property
