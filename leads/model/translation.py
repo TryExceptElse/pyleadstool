@@ -3,6 +3,8 @@ Module holding Translation class and associated methods and classes
 """
 from datetime import datetime, timedelta
 
+import logging
+
 from .sheets import Sheet, Column, Cell, DEFAULT_COLOR, NONE_STRING
 from .colors import DUPLICATE_CELL_COLOR, DUPLICATE_ROW_COLOR, \
         WHITESPACE_CELL_COLOR, WHITESPACE_ROW_COLOR
@@ -47,7 +49,9 @@ class Translation:
             overwrite_confirm_func=None,
             record_to_read=None,
     ):
-
+        logger = logging.getLogger(__name__)
+        logger.info('Created Translation. src={}, tgt={}'
+                    .format(source_sheet, target_sheet))
         if not isinstance(source_sheet, Sheet):
             raise TypeError('Source sheet should be a Sheet, got: %s'
                             % repr(source_sheet))
@@ -90,7 +94,12 @@ class Translation:
         elif self._whitespace_action == WHITESPACE_REMOVE_STR:
             self._remove_whitespace_in_translation_rows()
 
+        logging.debug('finished creating translation')
+
     def commit(self):
+        logger = logging.getLogger(__name__)
+        logger.info('Committing translation. src={}, tgt={}'
+                    .format(self.source_sheet, self.target_sheet))
         print('committing translations')
         self._target_sheet.take_snapshot()
         self.clear_target()
@@ -111,6 +120,8 @@ class Translation:
                 column_translation.get_generator())
 
     def _generate_cell_translations(self):
+        logger = logging.getLogger(__name__)
+        logger.info('mapping row translations')
         print('mapping row translations')
         y = self._source_start_row
         while any([generator.has_next() for generator in
@@ -126,9 +137,12 @@ class Translation:
                 row.add_cell_translation(cell_translation)
             self.translation_rows[y] = row
             y += 1
+        logger.info('done mapping row translations')
         print('done mapping row translations')
 
     def _highlight_translation_rows_with_whitespace(self):
+        logger = logging.getLogger(__name__)
+        logger.info('highlighting any whitespace in translated rows')
         whitespace_positions = list(self.get_whitespace_positions())
         assert isinstance(whitespace_positions, list)
         for item in whitespace_positions:
@@ -149,6 +163,8 @@ class Translation:
             )
 
     def _remove_whitespace_in_translation_rows(self):
+        logger = logging.getLogger(__name__)
+        logger.info('removing any whitespace from translated rows')
         whitespace_positions = list(self.get_whitespace_positions())
         for pos in whitespace_positions:
             try:
@@ -159,6 +175,8 @@ class Translation:
                 continue
 
     def _highlight_translation_rows_with_duplicates(self):
+        logger = logging.getLogger(__name__)
+        logger.info('highlighting any duplicates in translated rows')
         duplicate_positions = list(self.get_duplicate_positions())
         for pos in duplicate_positions:
             try:
@@ -175,6 +193,8 @@ class Translation:
             )
 
     def _remove_translation_rows_with_duplicates(self):
+        logger = logging.getLogger(__name__)
+        logger.info('Removing any rows containing duplicates')
         duplicate_positions = list(self.get_duplicate_positions())
         for pos in duplicate_positions:
             try:
@@ -192,6 +212,8 @@ class Translation:
         Returns lists of tuples of positions
         :return: iterator of tuples
         """
+        logger = logging.getLogger(__name__)
+        logger.info('looking for duplicate cells')
         print('looking for duplicate cells')
         for column_translation in self._column_translations:
             assert isinstance(column_translation, ColumnTranslation)
@@ -208,6 +230,8 @@ class Translation:
         Returns lists of tuples of positions
         :return: iterator of tuples
         """
+        logger = logging.getLogger(__name__)
+        logger.info('looking for whitespace cells')
         print('looking for whitespace in cells')
         for column_translation in self._column_translations:
             assert isinstance(column_translation, ColumnTranslation)
@@ -228,6 +252,8 @@ class Translation:
         as the result should be stored.
         :return: None
         """
+        logger = logging.getLogger(__name__)
+        logger.debug('confirming overwrite of cells in tgt sheet')
         if self.overwrite_confirm_func:
             return self.overwrite_confirm_func()
         else:
@@ -258,6 +284,11 @@ class Translation:
                 ColumnTranslations
         :param kwargs: kwargs for a single ColumnTranslation.
         """
+
+        logger = logging.getLogger(__name__)
+        logger.debug('adding column translation(s): args={}, kwargs={}'
+                     .format(args, kwargs))
+
         # check that passed args are all dictionaries
         assert all([isinstance(item, dict) for item in args]) or\
             all([isinstance(item, ColumnTranslation) for item in args]), \
@@ -306,6 +337,10 @@ class Translation:
         Clears target sheet of conflicting cell data
         Raises dialog for user to ok if anything is to be deleted.
         """
+
+        logger = logging.getLogger(__name__)
+        logger.debug('Clearing target sheet of any conflicting cell data')
+
         user_ok = False  # whether user has been presented with dialog
         for column in self._target_sheet.columns:
             assert isinstance(column, Column)
@@ -736,6 +771,7 @@ class ColumnTranslation:
 
 
 class CellGenerator:
+    """ Generates cell translations from src col to tgt col """
     def __init__(self, src_col, tgt_col, start_index):
         if not isinstance(src_col, Column):
             raise TypeError('expected Column. got: %s' % src_col)
