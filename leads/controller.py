@@ -1,3 +1,5 @@
+import logging
+
 from .model.campaign import Campaign
 from .model.lead_model import Model
 from .model.translation import Translation, ColumnTranslation
@@ -14,6 +16,8 @@ class Controller:
     # user actions
 
     def apply(self):
+        logger = logging.getLogger(__name__)
+        logger.debug('creating & applying translation')
         try:
             translation = self._make_translation()
             self.check(translation)  # show detected whitespace + duplicates
@@ -28,6 +32,8 @@ class Controller:
             )
 
     def check(self, translation=None):
+        logger = logging.getLogger(__name__)
+        logger.debug('checking for duplicates and whitespace')
         # make translation without committing, to be used to find
         # cells that will be used in translation that have whitespace
         # duplicates, or other features.
@@ -42,24 +48,35 @@ class Controller:
             self.view.show_exception(e, main='Could not check data.')
 
     def search_records(self):
+        logger = logging.getLogger(__name__)
+        logger.debug('showing record search dlg')
         try:
             # show search records dlg
             self.view.show_record_search_dlg()
         except Exception as e:
+            logger.exception(
+                'Exception occurred while showing record search dlg')
             self.view.show_exception(
                 e, main='Could not show record search dialog.')
 
     def view_records(self):
+        logger = logging.getLogger(__name__)
+        logger.debug('showing record viewing dlg')
         try:
             # show record view dlg
             self.view.show_records_view_dlg()
         except Exception as e:
+            logger.exception(
+                'Exception occurred while showing record viewing dlg')
             self.view.show_exception(e, main='Could not view records.')
 
     def record_translation(self, translation):
+        logger = logging.getLogger(__name__)
+        logger.debug('recording translation')
         try:
             self.model.records.add(translation)
         except Exception as e:
+            logger.exception('Exception occurred while recording translation')
             self.view.show_exception(e, main='Could not record translation')
 
     # context menu methods
@@ -83,15 +100,19 @@ class Controller:
         :param index: QIndex
         :return: None
         """
+        logger = logging.getLogger(__name__)
+        logger.debug('setting target sheet from index: {}'.format(index))
+        if self.model.target_sheet:  # if tgt was previously set, clear icon
+            self._sheet_item_from_index(self.tgt_sheet_i).clear_mark()
+
         # if tgt is being unset (passed None)...
         if index is None:
             self._sheet_item_from_index(self.tgt_sheet_i).clear_mark()
             self.model.target_sheet = None
+            self.model.assoc_table_model.update()
             return
 
         sheet = self.sheet_from_index(index)
-        if self.model.target_sheet:  # if tgt was previously set, clear icon
-            self._sheet_item_from_index(self.tgt_sheet_i).clear_mark()
         # if sheet was previously marked as the source, unset src sheet
         if sheet is self.model.source_sheet:
             self._sheet_item_from_index(self.src_sheet_i).clear_mark()
@@ -99,6 +120,7 @@ class Controller:
         self.model.target_sheet = sheet
         item = self._sheet_item_from_index(index)  # get sheet icon
         item.mark_as_tgt()
+        self.model.assoc_table_model.update()
 
     @property
     def src_sheet_i(self):
@@ -118,24 +140,32 @@ class Controller:
         :param index: QModelIndex
         :return: None
         """
+        logger = logging.getLogger(__name__)
+        logger.debug('setting source sheet from index: {}'.format(index))
+        if self.model.source_sheet:  # if src was previously set, clear icon
+            self._sheet_item_from_index(self.src_sheet_i).clear_mark()
+
         # if src is being unset...
         if index is None:
             self._sheet_item_from_index(self.src_sheet_i).clear_mark()
             self.model.source_sheet = None
+            self.model.assoc_table_model.update()  # update table
             return
 
         # otherwise, if a real index has been passed...
         sheet = self.sheet_from_index(index)
-        if self.model.source_sheet:  # if src was previously set, clear icon
-            self._sheet_item_from_index(self.src_sheet_i).clear_mark()
         if sheet is self.model.target_sheet:  # if sheet was previously the tgt
             self._sheet_item_from_index(self.tgt_sheet_i).clear_mark()
             self.model.target_sheet = None  # clear it, as it can't be both
         self.model.source_sheet = sheet
         item = self._sheet_item_from_index(index)  # get sheet icon
         item.mark_as_src()
+        # update translation table view
+        self.model.assoc_table_model.update()
 
     def _index_from_sheet(self, goal_sheet):
+        logger = logging.getLogger(__name__)
+        logger.debug('finding index of sheet: {}'.format(goal_sheet))
         for r, sheet_item in enumerate(self.model.sheets_model):
             sheet = self.model.office_model[sheet_item.sheet_id]
             if sheet is goal_sheet:
@@ -145,6 +175,8 @@ class Controller:
         return self.model.sheets_model.itemFromIndex(i)
 
     def sheet_from_index(self, i):
+        logger = logging.getLogger(__name__)
+        logger.debug('finding sheet from index: {}'.format(i))
         sheet_item = self.model.sheets_model.itemFromIndex(i)
         sheet_id = sheet_item.sheet_id
         sheet = self.model.office_model[sheet_id]
@@ -153,6 +185,8 @@ class Controller:
     # campaign creation / edit / etc methods
 
     def new_campaign(self, name: str):
+        logger = logging.getLogger(__name__)
+        logger.debug('creating new campaign of name: {}'.format(name))
         campaign = Campaign(name)
         self.model.campaigns.add_campaign(campaign)
         campaign.save()
@@ -160,6 +194,8 @@ class Controller:
         self.model.campaigns_model.update()  # update displayed campaigns list
 
     def del_campaign(self, campaign: 'Campaign'):
+        logger = logging.getLogger(__name__)
+        logger.debug('deleting campaign: {}'.format(campaign))
         del self.model.campaigns[campaign.name]
         self.model.campaigns_model.update()
 
@@ -178,6 +214,8 @@ class Controller:
 
     @active_campaign_i.setter
     def active_campaign_i(self, index):
+        logger = logging.getLogger(__name__)
+        logger.debug('setting active campaign from index: {}'.format(index))
         campaigns_model = self.model.campaigns_model
 
         # clear previous mark if one exists
@@ -204,6 +242,9 @@ class Controller:
         lead model.
         :return: Translation
         """
+        logger = logging.getLogger(__name__)
+        logger.debug('creating translation: src={}, tgt={}'
+                     .format(self.model.source_sheet, self.model.target_sheet))
         # create translation obj
         translation = Translation(
             source_sheet=self.model.source_sheet,
