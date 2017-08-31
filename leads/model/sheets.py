@@ -31,26 +31,28 @@ try:
     import multiprocessing.pool as mp_pool
     import threading
     import subprocess
+    
+    logger = logging.getLogger(__name__)
 
     try:
         import xlwings as xw
     except ImportError as e:
         xw = None
-        logging.info(
+        logger.info(
             'xlwings is not installed or could not be imported: %s' % e)
 
     try:
         import pythoncom
     except ImportError as e:
         pythoncom = None
-        logging.info(
+        logger.info(
             'pythoncom is not installed or could not be imported: %s' % e)
 
     try:
         import pyoo
     except ImportError as e:
         pyoo = None
-        logging.info(
+        logger.info(
             'pyoo is not installed or could not be imported: %s' % e)
 
 
