@@ -9,5 +9,5 @@ setup(
     license='',
     author='tryexceptelse',
     author_email='',
-    description=''
+    description='', requires=['PyQt5', 'tinydb', 'appdirs']
 )
