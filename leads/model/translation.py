@@ -105,18 +105,20 @@ class Translation:
     def check(self) -> 'ValidationReport':
         """
         Checks that data in cells to be translated is valid.
-        :return: None
+        :return: ValidationReport
         """
         data = _TranslationData()
         report = ValidationReport()
-        for entry in self.source_sheet_entries:  # TODO
+        for entry in self.source_sheet_entries:
             assert isinstance(entry, Entry)
             for col_translation, cell_data in entry.items():
                 assert isinstance(col_translation, ColumnTranslation), \
                     col_translation
                 assert isinstance(cell_data, CellData), cell_data
+                # get validator and validate cell data
                 validator: 'Validator' = col_translation.validator
                 issues = validator.validate(cell_data, data, self.reading_log)
+                # add issues returned by validator to ValidationReport
                 assert isinstance(issues, ty.Container['Issue']), issues
                 report.add_line(*issues)
         return report
@@ -140,7 +142,7 @@ class Translation:
         entry = Entry()
         for column_translation in self.column_translations:
             cell: 'Cell' = row[column_translation.source_column_i]
-            cell_data: CellData = column_translation.cell_data_type(cell.value)
+            cell_data: CellData = column_translation.cell_data_type(cell)
             entry[column_translation] = cell_data
         return entry
 
@@ -479,8 +481,12 @@ class CellData:
     comparison methods or similar.
     """
 
-    def __init__(self, value):
-        self.value = value
+    def __init__(self, cell: 'Cell'):
+        self.cell = cell
+
+    @property
+    def value(self):
+        return self.cell.value
 
 
 class _TranslationData:
@@ -593,7 +599,7 @@ class Validator:
             translation_data: '_TranslationData',
             records: 'RecordCollection'=None
     ) -> ty.Set['Issue']:
-        pass  # TODO: validates data, returning collection of issues found
+        pass  # extended by subclasses
 
 
 class BasicValidator(Validator):
@@ -607,3 +613,51 @@ class BasicValidator(Validator):
         self.check_for_whitespace: bool = white_chk
         # duration after which a duplicate value is acceptable
         self._min_duplicate_age: float = min_dup_age
+
+    def validate(
+            self,
+            cell_data: CellData,
+            translation_data: '_TranslationData',
+            records: 'RecordCollection'=None
+    ) -> ty.Set['Issue']:
+        issues: ty.Set['Issue'] = set()
+        if self.check_for_whitespace and cell_data.cell.has_whitespace:
+            issues.add(Issue(cell_data.cell, f"{cell} has whitespace"))
+
+        def find_duplicate() -> str:
+            """
+            Returns string describing position where
+            cell_data is duplicated.
+            Returns only the first duplicate found.
+            :return: str
+            """
+            value = cell_data.cell.value_without_whitespace
+            s = ''
+
+            # check in previous cells in translation for duplicate
+            try:
+                checked_values = translation_data[self]
+            except KeyError:
+                checked_values = {}
+                translation_data.add_collection(self, checked_values)
+
+            assert isinstance(checked_values, dict[ty.Any, 'Cell']), \
+                checked_values
+            if value in checked_values:
+                s = f'duplicate in earlier cell: {checked_values[value]}'
+
+            # check in previous records of translations
+            if records:
+                pass  # TODO
+
+            # add value + cell to checked values
+            checked_values[value] = cell_data.cell
+
+            return s
+
+        duplicate = find_duplicate()  # get string indicating duplicate pos
+        if self.check_for_duplicates and duplicate:
+            issues.add(Issue(
+                cell_data.cell, f'{cell} contains a duplicate. ' + duplicate))
+
+        return issues
