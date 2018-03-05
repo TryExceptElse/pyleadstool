@@ -1,11 +1,18 @@
 """
 Module holding Translation class and associated methods and classes
 """
-from datetime import datetime, timedelta
 
 import logging
+import typing as ty
 
-from .sheets import Sheet, Column, Cell, DEFAULT_COLOR, NONE_STRING
+from collections import namedtuple
+from datetime import datetime, timedelta
+
+try:
+    from .records import RecordCollection
+except ImportError:
+    RecordCollection = None
+from .sheets import Sheet, Column, Cell, Row, DEFAULT_COLOR, NONE_STRING
 from .colors import DUPLICATE_CELL_COLOR, DUPLICATE_ROW_COLOR, \
         WHITESPACE_CELL_COLOR, WHITESPACE_ROW_COLOR
 
@@ -29,13 +36,23 @@ LOG_TGT_SHEET_NAME = 'tgt_sheet_name'
 LOG_SRC_SHEET_NAME = 'src_sheet_name'
 
 
+# structure:
+#   make TranslationBuffer instance (better name?)
+#   iterate over source_entries()
+#       add to TranslationBuffer
+#           returns collection of issues
+#       add generated issues to IssueReport
+#   return IssueReport
+#
+#   on commit:
+#       each entry in TranslationBuffer gets added to receiver
+
+
 class Translation:
     """
     Handles movement of data from source to target sheets and applies
     modifications
     """
-    _whitespace_action = WHITESPACE_HIGHLIGHT_STR
-    _duplicate_action = DUPLICATE_HIGHLIGHT_STR
 
     def __init__(
             self,
@@ -44,8 +61,6 @@ class Translation:
             column_translations=None,
             source_start_row=1,
             target_start_row=1,
-            whitespace_action=WHITESPACE_HIGHLIGHT_STR,
-            duplicate_action=DUPLICATE_HIGHLIGHT_STR,
             overwrite_confirm_func=None,
             record_to_read=None,
     ):
@@ -58,188 +73,76 @@ class Translation:
         if not isinstance(target_sheet, Sheet):
             raise TypeError('Target sheet should be a Sheet, got: %s'
                             % repr(source_sheet))
-        self._source_sheet = source_sheet
-        self._target_sheet = target_sheet
-        self._row_deletions = set()
-        self._src_cell_transforms = {}
-        self._tgt_cell_transforms = {}
+        self._source_sheet: Sheet = source_sheet
+        self._target_sheet: Sheet = target_sheet
         self._source_start_row = source_start_row
         self._target_start_row = target_start_row
-        self._whitespace_action = whitespace_action
-        self._duplicate_action = duplicate_action
         self.overwrite_confirm_func = overwrite_confirm_func
-        self.reading_log = record_to_read
-        self._source_sheet.take_snapshot()  # take snapshot of source sheet
-        self._commit_datetime = None
+        self.reading_log: 'RecordCollection' = record_to_read
         # create column translations from passed list of dicts
         # in settings
-        self._column_translations = []
+        self._column_translations: ty.List['ColumnTranslation'] = []
         self.add_column_translation(*column_translations)
-
-        self.translation_rows = {}  # y_index: set(x_indices)
-        self.cell_translation_generators = []  # x_index: generator
-        self.cell_translations = {}  # src_pos: CellTranslation
-
-        self._get_cell_generators()
-        self._generate_cell_translations()
-        self._source_sheet.discard_snapshot()  # we're done with source sheet
-
-        if self._duplicate_action == DUPLICATE_HIGHLIGHT_STR:
-            self._highlight_translation_rows_with_duplicates()
-        elif self._duplicate_action == DUPLICATE_REMOVE_ROW_STR:
-            self._remove_translation_rows_with_duplicates()
-
-        if self._whitespace_action == WHITESPACE_HIGHLIGHT_STR:
-            self._highlight_translation_rows_with_whitespace()
-        elif self._whitespace_action == WHITESPACE_REMOVE_STR:
-            self._remove_whitespace_in_translation_rows()
 
         logging.debug('finished creating translation')
 
-    def commit(self):
+    def commit(self) -> 'CommitReport':
         logger = logging.getLogger(__name__)
         logger.info('Committing translation. src={}, tgt={}'
                     .format(self.source_sheet, self.target_sheet))
         print('committing translations')
         self._target_sheet.take_snapshot()
         self.clear_target()
-        self._apply_translation_rows()
+        report = CommitReport()  # make report to store results in
+        report.validation_report = self.check()
+        report.commit_datetime = datetime.utcnow()
+        for entry in self.source_sheet_entries:
+            assert isinstance(entry, Entry), entry
+
         self._target_sheet.write_snapshot()
-        self._commit_datetime = datetime.utcnow()
+        return report
 
-    def _apply_translation_rows(self):
-        for y in self.translation_rows:
-            t_row = self.translation_rows[y]
-            assert isinstance(t_row, TranslationRow)
-            t_row.apply(self._target_sheet, y)
-
-    def _get_cell_generators(self):
-        for column_translation in self._column_translations:
-            assert isinstance(column_translation, ColumnTranslation)
-            self.cell_translation_generators.append(
-                column_translation.get_generator())
-
-    def _generate_cell_translations(self):
-        logger = logging.getLogger(__name__)
-        logger.info('mapping row translations')
-        print('mapping row translations')
-        y = self._source_start_row
-        while any([generator.has_next() for generator in
-                   self.cell_translation_generators]):
-            row = TranslationRow()
-            for generator in self.cell_translation_generators:
-                assert isinstance(generator, CellGenerator)
-                if not generator.has_next():
-                    continue
-                cell_translation = generator.next()
-                self.cell_translations[cell_translation.src_pos] = \
-                    cell_translation
-                row.add_cell_translation(cell_translation)
-            self.translation_rows[y] = row
-            y += 1
-        logger.info('done mapping row translations')
-        print('done mapping row translations')
-
-    def _highlight_translation_rows_with_whitespace(self):
-        logger = logging.getLogger(__name__)
-        logger.info('highlighting any whitespace in translated rows')
-        whitespace_positions = list(self.get_whitespace_positions())
-        assert isinstance(whitespace_positions, list)
-        for item in whitespace_positions:
-            assert isinstance(item, tuple), 'got: %s' % item
-            assert len(item) == 2, 'got: %s' % item
-        for pos in whitespace_positions:
-            try:
-                cell_t = self.cell_translations[pos]
-            except KeyError:
-                continue
-            assert isinstance(cell_t, CellTranslation)
-            row = cell_t.row
-            assert isinstance(row, TranslationRow)
-            row.color_cell_and_row(
-                pos[0],
-                WHITESPACE_CELL_COLOR,
-                WHITESPACE_ROW_COLOR,
-            )
-
-    def _remove_whitespace_in_translation_rows(self):
-        logger = logging.getLogger(__name__)
-        logger.info('removing any whitespace from translated rows')
-        whitespace_positions = list(self.get_whitespace_positions())
-        for pos in whitespace_positions:
-            try:
-                cell_t = self.cell_translations[pos]
-                assert isinstance(cell_t, CellTranslation)
-                cell_t.add_transform(lambda cell: cell.remove_whitespace())
-            except KeyError:
-                continue
-
-    def _highlight_translation_rows_with_duplicates(self):
-        logger = logging.getLogger(__name__)
-        logger.info('highlighting any duplicates in translated rows')
-        duplicate_positions = list(self.get_duplicate_positions())
-        for pos in duplicate_positions:
-            try:
-                cell_t = self.cell_translations[pos]
-            except KeyError:
-                continue
-            assert isinstance(cell_t, CellTranslation)
-            row = cell_t.row
-            assert isinstance(row, TranslationRow)
-            row.color_cell_and_row(
-                pos[0],
-                DUPLICATE_CELL_COLOR,
-                DUPLICATE_ROW_COLOR
-            )
-
-    def _remove_translation_rows_with_duplicates(self):
-        logger = logging.getLogger(__name__)
-        logger.info('Removing any rows containing duplicates')
-        duplicate_positions = list(self.get_duplicate_positions())
-        for pos in duplicate_positions:
-            try:
-                cell_t = self.cell_translations[pos]
-            except KeyError:
-                continue
-            row = cell_t.row
-            for y in self.translation_rows:
-                if self.translation_rows[y] is row:
-                    del self.translation_rows[y]
-                    break
-
-    def get_duplicate_positions(self):
+    def check(self) -> 'ValidationReport':
         """
-        Returns lists of tuples of positions
-        :return: iterator of tuples
+        Checks that data in cells to be translated is valid.
+        :return: None
         """
-        logger = logging.getLogger(__name__)
-        logger.info('looking for duplicate cells')
-        print('looking for duplicate cells')
-        for column_translation in self._column_translations:
-            assert isinstance(column_translation, ColumnTranslation)
-            if not column_translation.check_for_duplicates:
-                continue
-            for duplicate_cell in \
-                    column_translation.get_duplicate_source_cells():
-                assert isinstance(duplicate_cell, Cell)
-                yield duplicate_cell.position
-        print('done looking for duplicates')
+        data = _TranslationData()
+        report = ValidationReport()
+        for entry in self.source_sheet_entries:  # TODO
+            assert isinstance(entry, Entry)
+            for col_translation, cell_data in entry.items():
+                assert isinstance(col_translation, ColumnTranslation), \
+                    col_translation
+                assert isinstance(cell_data, CellData), cell_data
+                validator: 'Validator' = col_translation.validator
+                issues = validator.validate(cell_data, data, self.reading_log)
+                assert isinstance(issues, ty.Container['Issue']), issues
+                report.add_line(*issues)
+        return report
 
-    def get_whitespace_positions(self):
+    @property
+    def source_sheet_entries(self) -> ty.Iterable['Entry']:
         """
-        Returns lists of tuples of positions
-        :return: iterator of tuples
+        Generates entries from source sheet.
+        :return: Entry generator
         """
-        logger = logging.getLogger(__name__)
-        logger.info('looking for whitespace cells')
-        print('looking for whitespace in cells')
-        for column_translation in self._column_translations:
-            assert isinstance(column_translation, ColumnTranslation)
-            if not column_translation.check_for_whitespace:
-                continue
-            for cell in column_translation.get_whitespace_source_cells():
-                yield cell.position
-        print('done looking for whitespace')
+        for row in self.source_sheet.rows:
+            entry = self._make_entry(row)
+            yield entry
+
+    def _make_entry(self, row: 'Row') -> 'Entry':
+        """
+        Creates entry from source sheet row.
+        :param row: Row
+        :return: Entry
+        """
+        entry = Entry()
+        for column_translation in self.column_translations:
+            cell: 'Cell' = row[column_translation.source_column_i]
+            cell_data: CellData = column_translation.cell_data_type(cell.value)
+            entry[column_translation] = cell_data
+        return entry
 
     def _confirm_overwrite(self):
         """
@@ -259,77 +162,21 @@ class Translation:
         else:
             return True
 
-    def add_column_translation(self, *args, **kwargs) -> None:
+    def add_column_translation(
+            self, *translations: 'ColumnTranslation') -> None:
         """
         Adds translation to queue which when applied, copies cell data
         from source column to target column.
-        source and target columns may be identified either by passing
-        the name of that column, as determined by the sheet's reference
-        row, or by their index.
-        An index or name must be passed for both source and target
-        columns, however passing both an index and a name will result
-        in a ValueError being raised.
-        If passed kwargs, will pass on those to a
-        created ColumnTranslation obj.
-        If passed a dictionary or dictionaries, will add one
-        ColumnTranslation for each of those dictionaries, and pass it
-        the contained kwargs.
-            source_column_i: int
-            source_column_name: int, float, or str
-            target_column_i: int
-            target_column_name: int, float, or str
-            kwargs: other kwargs will be passed to created
-        ColumnTranslation.
-        :param args: ColumnTranslation kwargs dictionaries or pre-made
-                ColumnTranslations
-        :param kwargs: kwargs for a single ColumnTranslation.
+        :param translations: ColumnTranslation any number of translations
         """
 
         logger = logging.getLogger(__name__)
-        logger.debug('adding column translation(s): args={}, kwargs={}'
-                     .format(args, kwargs))
+        logger.debug('adding column translation(s)')
 
-        # check that passed args are all dictionaries
-        assert all([isinstance(item, dict) for item in args]) or\
-            all([isinstance(item, ColumnTranslation) for item in args]), \
-            'passed args must be ColumnTranslations or else ' \
-            'dictionaries of kwargs for ' \
-            'ColumnTranslations. Instead got %s' % args
-        # for each passed kwargs dictionary,
-        # including that passed to this method;
-        if isinstance(args[0], ColumnTranslation):
-            for column_translation in args:
-                self._column_translations.append(column_translation)
-            return
-        for kwargs_dict in args + (kwargs,) if kwargs else args:
-            # ensure correct kwargs were passed.
-            # Exactly one source column identifier should have been
-            # passed for each of src col and tgt col
-            source_column_i = kwargs_dict.get(SOURCE_COLUMN_INDEX_KEY, None)
-            source_column_name = kwargs_dict.get(SOURCE_COLUMN_NAME_KEY, None)
-            target_column_i = kwargs_dict.get(TARGET_COLUMN_INDEX_KEY, None)
-            target_column_name = kwargs_dict.get(TARGET_COLUMN_NAME_KEY, None)
-            # if source is null, continue
-            if source_column_i == -1 or source_column_name == NONE_STRING:
-                continue
-            if bool(source_column_i) == bool(source_column_name):
-                raise ValueError(
-                    'One of source_column_i or source_column_name must '
-                    'be passed, but not both. Got %s and %s respectively'
-                    % (source_column_i, source_column_name)
-                )
-            if bool(target_column_i) == bool(target_column_name):
-                raise ValueError(
-                    'One of target_column_i or target_column_name must '
-                    'be passed, but not both. Got %s and %s respectively'
-                    % (target_column_i, target_column_name)
-                )
-            # add ColumnTranslation
+        for translation in translations:
+            logger.debug(f'adding {translation}')
             self._column_translations.append(
-                ColumnTranslation(
-                    parent_translation=self,
-                    **kwargs_dict
-                )
+                translation
             )
 
     def clear_target(self):
@@ -357,23 +204,6 @@ class Translation:
                     user_ok = True
                 cell.value = ''
                 cell.set_color(DEFAULT_COLOR)
-
-    @property
-    def as_dict(self) -> dict:
-        """
-        Returns a dict representing the value of each cell in
-        Each row moved.
-        Intended to be used to export information about translation
-        to a json file.
-        :return: dict
-        """
-        return {
-            # datetime, when converted to string, works correctly as a
-            # comparable
-            LOG_DATE_TIME_KEY: str(self._commit_datetime),
-            LOG_TGT_COLUMNS_KEY:
-                [row.to_json() for row in self.translation_rows]
-        }
 
     @property
     def source_sheet(self):
@@ -434,77 +264,6 @@ class Translation:
         """
         return self._column_translations.copy()
 
-    @property
-    def row_deletions(self) -> set:
-        """
-        Gets set of rows to be deleted in translation
-        :return: set
-        """
-        return self._row_deletions.copy()
-
-    @property
-    def whitespace_action(self):
-        """
-        Gets name of action that will be taken for cells containing
-        whitespace
-        :return: str
-        """
-        return self._whitespace_action
-
-    @whitespace_action.setter
-    def whitespace_action(self, action):
-        """
-        Sets action to be taken when cell contains whitespace
-        :param action: str
-        """
-        assert action in (
-            WHITESPACE_REMOVE_STR,
-            WHITESPACE_HIGHLIGHT_STR,
-            WHITESPACE_IGNORE_STR
-        )
-        self._whitespace_action = action
-
-    @property
-    def duplicate_action(self):
-        """
-        Gets name of action that will be taken for rows containing
-        duplicates
-        :return: str
-        """
-        return self._duplicate_action
-
-    @duplicate_action.setter
-    def duplicate_action(self, action):
-        """
-        Sets name of action that will be taken for rows
-        containing duplicates
-        :param action: str
-        """
-        assert action in (
-            DUPLICATE_REMOVE_ROW_STR,
-            DUPLICATE_HIGHLIGHT_STR,
-            DUPLICATE_IGNORE_STR
-        )
-        self._duplicate_action = action
-
-    @property
-    def src_cell_transforms(self):
-        """
-        Gets cell transforms that are to be applied based on src
-        sheet position.
-        :return: dict{src_sheet_position: list[function]}
-        """
-        return self._src_cell_transforms.copy()
-
-    @property
-    def tgt_cell_transforms(self):
-        """
-        Gets cell transforms that are to be applied based on tgt
-        sheet position
-        :return: dict{tgt_sheet_position: list[function]}
-        """
-        return self._tgt_cell_transforms.copy()
-
 
 class ColumnTranslation:
     """
@@ -519,9 +278,7 @@ class ColumnTranslation:
             target_column_i=None,
             source_column_name=None,
             target_column_name=None,
-            check_for_whitespace: bool=True,
-            check_for_duplicates: bool=False,
-            min_duplicate_val_age: timedelta=None
+            validator: 'Validator'=None,
     ) -> None:
         if (
             bool(source_column_i is None) ==
@@ -544,22 +301,12 @@ class ColumnTranslation:
                 % (target_column_i, target_column_i.__class__.__name__,
                    target_column_name, target_column_name.__class__.__name__)
             )
+        self._validator = validator or BasicValidator
         self._parent_translation = parent_translation
         self._target_column_i = target_column_i
         self._source_column_i = source_column_i
         self._target_column_name = target_column_name
         self._source_column_name = source_column_name
-        self._duplicates_check = check_for_duplicates
-        self._whitespace_check = check_for_whitespace
-        # duration after which a duplicate value is acceptable
-        self._min_duplicate_age = min_duplicate_val_age
-
-    def get_generator(self):
-        return CellGenerator(
-            src_col=self.source_column,
-            tgt_col=self.target_column,
-            start_index=self._parent_translation.source_start_row
-        )
 
     # source sheet getters / setters
 
@@ -699,176 +446,164 @@ class ColumnTranslation:
             self._target_column_name
         return self.target_sheet.get_column(identifier)
 
-    # column translation options
+    @property
+    def cell_data_type(self):
+        return self._validator.cell_data_type
 
     @property
-    def check_for_duplicates(self) -> bool:
-        """
-        Returns bool of whether column should be checked for duplicates
-        :return: bool
-        """
-        return self._duplicates_check
-
-    @check_for_duplicates.setter
-    def check_for_duplicates(self, new_bool: bool):
-        """
-        Sets bool of whether column should be checked for duplicates
-        :param new_bool: bool
-        """
-        self._duplicates_check = new_bool
-
-    @property
-    def check_for_whitespace(self) -> bool:
-        """
-        Returns bool of whether column should be checked for whitespace
-        :return: bool
-        """
-        return self._whitespace_check
-
-    @check_for_whitespace.setter
-    def check_for_whitespace(self, new_bool: bool):
-        """
-        Gets bool for whether column is checked for whitespace
-        :param new_bool: bool
-        """
-        self._whitespace_check = new_bool
-
-    def get_whitespace_source_cells(self):
-        """
-        Yields cells in source column which contain whitespace
-        :return: iterator of cells
-        """
-        assert self._parent_translation is not None, \
-            "Parent translation must be set"
-        for cell in self.source_column:
-            if cell.has_whitespace:
-                yield cell
-
-    def get_duplicate_source_cells(self):
-        """
-        Yields cells in source column with values that are duplicates of
-        previously occurring values
-        :return: iterator of cells
-        """
-        assert self._parent_translation is not None, \
-            "Parent translation must be set"
-        values = set()
-        parent = self._parent_translation
-        if parent.reading_log:  # if option is set
-            key = self._target_column_name
-            log_values = parent.reading_log.values_set(
-                key, self._min_duplicate_age
-            )
-        else:
-            log_values = set()
-        # now check each cell in col for whether it is in previous values
-        # of this column, or if it is in records
-        for cell in self.source_column:
-            value = cell.value_without_whitespace
-            # if cell's value is in set of existing values, return cell.
-            if value in values or value in log_values:
-                yield cell
+    def validator(self) -> 'Validator':
+        return self._validator
 
 
-class CellGenerator:
-    """ Generates cell translations from src col to tgt col """
-    def __init__(self, src_col, tgt_col, start_index):
-        if not isinstance(src_col, Column):
-            raise TypeError('expected Column. got: %s' % src_col)
-        if not isinstance(tgt_col, Column):
-            raise TypeError
-        if not isinstance(start_index, int):
-            raise TypeError
-        self.tgt_col = tgt_col
-        self.src_col = src_col
-        self.i = start_index
-        self.end_index_exclusive = len(src_col)
+class Entry(dict):
+    """
+    Stores data of a single row.
 
-    def has_next(self):
-        if self.i < self.end_index_exclusive:
-            return True
+    Stored keys should be target column identifiers, values should
+    be stored cell values.
+    """
 
-    def next(self):
-        cell_translation = CellTranslation(
-            cell=self.src_col.get_cell_by_index(self.i),
-            src_x=self.src_col.index,
-            tgt_x=self.tgt_col.index
-        )
-        self.i += 1
-        return cell_translation
+    def __setitem__(self, key: 'ColumnTranslation', value: 'CellData') -> None:
+        if not isinstance(key, ColumnTranslation):
+            raise TypeError(f'Expected ColumnTranslation as key, got: {key}')
+        if not isinstance(value, CellData):
+            raise TypeError(f'Expected CellData as value, got {value}')
+        super().__setitem__(key, value)
 
 
-class TranslationRow:
+class CellData:
+    """
+    Stores data from a single column in Entry.
+    This class does nothing special, but subclasses may impose
+    validation in the initialization method, and override
+    comparison methods or similar.
+    """
+
+    def __init__(self, value):
+        self.value = value
+
+
+class _TranslationData:
+    """
+    Stores data related to a single check or commit.
+    TranslationData is given to Validators when they are validating
+    a cell so that they may optionally store data specific to a single
+    check or commit
+    """
+
     def __init__(self):
-        self.cell_translations = []
+        self._d = {}
 
-    def add_cell_translation(self, *translations):
-        for cell_translation in translations:
-            cell_translation.row = self
-            self.cell_translations.append(cell_translation)
+    def add_collection(self, validator: 'Validator', collection: ty.Container):
+        if validator in self._d:
+            raise ValueError(f"{validator} already present in {self}")
+        self._d[validator] = collection
 
-    def color_cell_and_row(self, cell_x, cell_color, row_color):
-        for cell_t in self.cell_translations:
-            assert isinstance(cell_t, CellTranslation)
-            if cell_t.src_x != cell_x:
-                cell_t.add_transform(
-                    lambda cell:
-                    cell.set_color(row_color) if
-                    cell.get_color() == -1  # if cell is default color
-                    else None
-                )
-            else:
-                cell_t.add_transform(lambda cell: cell.set_color(cell_color))
+    def __getitem__(self, validator: 'Validator') -> ty.Container:
+        if validator not in self._d:
+            raise ValueError(
+                f'{validator} not in {self}. Call add_collection first?')
+        return self._d[validator]
 
-    def apply(self, tgt_sheet, y):
-        for cell_t in self.cell_translations:
-            assert isinstance(cell_t, CellTranslation)
-            cell_t.apply(tgt_sheet, y)
-
-    @property
-    def as_dict(self) -> dict:
-        """
-        Returns json representation of row values that will be
-        moved to target.
-        :return: str
-        """
-        return {cell_translation.cell.column.name: cell_translation.cell.value
-                for cell_translation in self.cell_translations}
+    def __repr__(self) -> str:
+        return f'_TranslationData[{self.__hash__()}]'
 
 
-class CellTranslation:
-    row = None
+#######################################################################
+# Column Data Types:
+#######################################################################
 
-    def __init__(self, cell, src_x, tgt_x):
-        self.cell, self.src_x, self.tgt_x = cell, src_x, tgt_x
-        self.transforms = []
 
-    def apply(self, tgt_sheet, y_pos):
-        if not isinstance(tgt_sheet, Sheet):
-            raise TypeError
-        if not isinstance(y_pos, int):
-            raise TypeError
-        tgt_cell = tgt_sheet.get_cell((self.tgt_x, y_pos))
-        tgt_cell.value = self.cell.value
-        [transform(tgt_cell) for transform in self.transforms]
-
-    def add_transform(self, transform):
-        assert hasattr(transform, '__call__')
-        self.transforms.append(transform)
+class CommitReport:
+    def __init__(self):
+        self._commit_datetime: datetime or None = None
+        self._validation_report: ValidationReport or None = None
 
     @property
-    def src_pos(self):
-        return self.cell.position
+    def commit_datetime(self) -> datetime or None:
+        return self._commit_datetime
+
+    @commit_datetime.setter
+    def commit_datetime(self, commit_datetime: datetime):
+        if self.commit_datetime:
+            raise ValueError('Commit Date-Time already set')
+        self._commit_datetime = commit_datetime
+
+    @property
+    def validation_report(self) -> datetime or None:
+        return self._validation_report
+
+    @validation_report.setter
+    def validation_report(self, report: 'ValidationReport'):
+        if self._validation_report:
+            raise ValueError('validation_report already set')
+        self._validation_report = report
 
 
-class CellTransform:
-    def __init__(self, position, sheet, call_obj):
-        assert all([isinstance(x, int) for x in position])
-        assert sheet in ('src', 'tgt')
-        assert hasattr(call_obj, '__call__')
-        self.position = position
-        self.sheet = sheet
-        self.call_obj = call_obj
+class ValidationReport:
+    """
+    Stores information produced by Validator.
+    """
+    def __init__(self):
+        self.column_issues = {}  # issues, stored by entry column.
+        self.row_issues = {}  # issues, stored by entry row.
 
-    def __call__(self, cell):
-        self.call_obj(cell)
+    def add_line(self, *issue: 'Issue'):
+        for issue_ in issue:
+            row, col = issue_.cell.row, issue_.cell.column
+
+            try:  # add to list of issues related to row
+                self.row_issues[row].append(issue_)
+            except KeyError:  # create new list for row
+                self.row_issues[row] = [issue_]
+
+            try:  # add to list of issues related to col
+                self.column_issues[col].append(issue_)
+            except KeyError:  # create new list for column
+                self.column_issues[col] = [issue_]
+
+
+# stores an issue with a single cell
+Issue = namedtuple('Issue', ['cell', 'feedback'])
+
+
+#######################################################################
+# Column Data Types:
+#######################################################################
+
+
+class Validator:
+    """
+    Handles a specific type of input, checking for unexpected data,
+    and handles response to such data.
+    """
+    cell_data_type = CellData
+
+    def __call__(
+            self,
+            cell_data: CellData,
+            translation_data: '_TranslationData',
+            records: 'RecordCollection'=None
+    ) -> ty.Set['Issue']:
+        return self.validate(cell_data, translation_data, records)
+
+    def validate(
+            self,
+            cell_data: CellData,
+            translation_data: '_TranslationData',
+            records: 'RecordCollection'=None
+    ) -> ty.Set['Issue']:
+        pass  # TODO: validates data, returning collection of issues found
+
+
+class BasicValidator(Validator):
+    def __init__(
+            self,
+            dup_chk: bool=True,
+            white_chk: bool=True,
+            min_dup_age: float=0
+    ) -> None:
+        self.check_for_duplicates: bool = dup_chk
+        self.check_for_whitespace: bool = white_chk
+        # duration after which a duplicate value is acceptable
+        self._min_duplicate_age: float = min_dup_age

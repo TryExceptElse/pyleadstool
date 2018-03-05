@@ -306,4 +306,3 @@ class Ui_MainWindow(object):
         self.searchAction.setToolTip(_translate("MainWindow", "search records for a specific value"))
         self.viewRecordsAction.setText(_translate("MainWindow", "View Records"))
         self.viewRecordsAction.setToolTip(_translate("MainWindow", "View records by date and campaign"))
-
