@@ -36,18 +36,6 @@ LOG_TGT_SHEET_NAME = 'tgt_sheet_name'
 LOG_SRC_SHEET_NAME = 'src_sheet_name'
 
 
-# structure:
-#   make TranslationBuffer instance (better name?)
-#   iterate over source_entries()
-#       add to TranslationBuffer
-#           returns collection of issues
-#       add generated issues to IssueReport
-#   return IssueReport
-#
-#   on commit:
-#       each entry in TranslationBuffer gets added to receiver
-
-
 class Translation:
     """
     Handles movement of data from source to target sheets and applies
@@ -107,6 +95,9 @@ class Translation:
         Checks that data in cells to be translated is valid.
         :return: ValidationReport
         """
+        logger = logging.getLogger(__name__)
+        logger.info('Checking translation. '
+                    f'src={self.source_sheet}, tgt={self.target_sheet}')
         data = _TranslationData()
         report = ValidationReport()
         for entry in self.source_sheet_entries:
@@ -282,20 +273,14 @@ class ColumnTranslation:
             target_column_name=None,
             validator: 'Validator'=None,
     ) -> None:
-        if (
-            bool(source_column_i is None) ==
-            bool(source_column_name is None)
-        ):
+        if bool(source_column_i is None) == bool(source_column_name is None):
             raise ValueError(
                 'Source column index or name must be passed, but not both. '
                 'Got args source_column_i: %s (%s) and source_column_name: %s'
                 ' (%s) respectively'
                 % (source_column_i, source_column_i.__class__.__name__,
                    source_column_name, source_column_name.__class__.__name__))
-        if (
-            bool(target_column_i is None) ==
-            bool(target_column_name is None)
-        ):
+        if bool(target_column_i is None) == bool(target_column_name is None):
             raise ValueError(
                 'Target column index or name must be passed, but not both. '
                 'Got args target_column_i: %s (%s) and target_column_name: %s'
@@ -303,7 +288,7 @@ class ColumnTranslation:
                 % (target_column_i, target_column_i.__class__.__name__,
                    target_column_name, target_column_name.__class__.__name__)
             )
-        self._validator = validator or BasicValidator
+        self._validator = validator or BasicValidator()
         self._parent_translation = parent_translation
         self._target_column_i = target_column_i
         self._source_column_i = source_column_i
@@ -516,7 +501,7 @@ class _TranslationData:
 
 
 #######################################################################
-# Column Data Types:
+# Reports:
 #######################################################################
 
 
@@ -574,7 +559,7 @@ Issue = namedtuple('Issue', ['cell', 'feedback'])
 
 
 #######################################################################
-# Column Data Types:
+# Validators:
 #######################################################################
 
 
@@ -603,6 +588,10 @@ class Validator:
 
 
 class BasicValidator(Validator):
+    """
+    Generic Validator, validating values stored in a column without
+    special attributes.
+    """
     def __init__(
             self,
             dup_chk: bool=True,
@@ -622,7 +611,8 @@ class BasicValidator(Validator):
     ) -> ty.Set['Issue']:
         issues: ty.Set['Issue'] = set()
         if self.check_for_whitespace and cell_data.cell.has_whitespace:
-            issues.add(Issue(cell_data.cell, f"{cell} has whitespace"))
+            cell = cell_data.cell
+            issues.add(Issue(cell, f"{cell} has whitespace"))
 
         def find_duplicate() -> str:
             """
@@ -641,8 +631,7 @@ class BasicValidator(Validator):
                 checked_values = {}
                 translation_data.add_collection(self, checked_values)
 
-            assert isinstance(checked_values, dict[ty.Any, 'Cell']), \
-                checked_values
+            assert isinstance(checked_values, dict), checked_values
             if value in checked_values:
                 s = f'duplicate in earlier cell: {checked_values[value]}'
 
@@ -657,7 +646,8 @@ class BasicValidator(Validator):
 
         duplicate = find_duplicate()  # get string indicating duplicate pos
         if self.check_for_duplicates and duplicate:
+            cell = cell_data.cell
             issues.add(Issue(
-                cell_data.cell, f'{cell} contains a duplicate. ' + duplicate))
+                cell, f'{cell} contains a duplicate. ' + duplicate))
 
         return issues
