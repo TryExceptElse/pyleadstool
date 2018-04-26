@@ -68,7 +68,7 @@ class TestCellLine(TestOfficeObj):
         line_iterator = leadmacro.CellLine(self.sheet, 'x', 1).__iter__()
         first_cell = line_iterator.__next__()
         self.assertIsInstance(first_cell, leadmacro.Cell)
-        self.assertEquals("2a", first_cell.value)
+        self.assertEqual("2a", first_cell.value)
         line_iterator.__next__()
         string_cell = line_iterator.__next__()
         self.assertIsInstance(first_cell, leadmacro.Cell)

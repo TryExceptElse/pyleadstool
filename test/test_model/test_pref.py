@@ -21,5 +21,5 @@ class TestPref(TestCase):
 
         pref2 = Preferences(f_name)
         pref2.load()
-        self.assertEquals('v1', pref2['k1'])
-        self.assertEquals('v2', pref2['k2'])
+        self.assertEqual('v1', pref2['k1'])
+        self.assertEqual('v2', pref2['k2'])
