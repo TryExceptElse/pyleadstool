@@ -51,7 +51,7 @@ class Translation:
             target_start_row=1,
             overwrite_confirm_func=None,
             record_to_read=None,
-    ):
+    ) -> None:
         logger = logging.getLogger(__name__)
         logger.info('Created Translation. src={}, tgt={}'
                     .format(source_sheet, target_sheet))
