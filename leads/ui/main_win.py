@@ -138,40 +138,45 @@ class MainWin(QMainWindow, Ui_MainWindow):
         # set src action
         if sheet is not self.model.source_sheet:
             set_src_action = menu.addAction("Select as source")
+            # noinspection PyUnresolvedReferences
             set_src_action.triggered.connect(
                 lambda: setattr(self.controller, 'src_sheet_i', index)
             )
         # remove src action
         else:
             clear_src_action = menu.addAction("Remove as source")
+            # noinspection PyUnresolvedReferences
             clear_src_action.triggered.connect(
                 lambda: setattr(self.controller, 'src_sheet_i', None)
             )
         # set tgt action
         if sheet is not self.model.target_sheet:
             set_tgt_action = menu.addAction("Select as target")
+            # noinspection PyUnresolvedReferences
             set_tgt_action.triggered.connect(
                 lambda: setattr(self.controller, 'tgt_sheet_i', index)
             )
         # remove tgt action
         else:
             clear_tgt_action = menu.addAction("Remove as target")
+            # noinspection PyUnresolvedReferences
             clear_tgt_action.triggered.connect(
                 lambda: setattr(self.controller, 'tgt_sheet_i', None)
             )
         menu.popup(QtGui.QCursor.pos())
 
-    def _open_campaign_context_menu(self, event):
+    def _open_campaign_context_menu(self, _: QContextMenuEvent) -> None:
         """
         Method called when user opens the context (right click menu)
         of a campaign item in the campaigns list.
-        :param event:
+        :param _:
         :return: None
         """
 
         menu = QMenu(self)
 
         new_campaign_action = menu.addAction('New Campaign')
+        # noinspection PyUnresolvedReferences
         new_campaign_action.triggered.connect(self.show_make_campaign_dlg)
 
         if len(self.campaignList.selectedIndexes()) > 0 and \
@@ -183,6 +188,7 @@ class MainWin(QMainWindow, Ui_MainWindow):
             set_active_action = menu.addAction(
                 'Set as Active Campaign'
             )
+            # noinspection PyUnresolvedReferences
             set_active_action.triggered.connect(
                 lambda: setattr(self.controller, 'active_campaign_i', index)
             )
@@ -191,6 +197,7 @@ class MainWin(QMainWindow, Ui_MainWindow):
             del_campaign_action = menu.addAction(
                 'Delete {}'.format(campaign.name)
             )
+            # noinspection PyUnresolvedReferences
             del_campaign_action.triggered.connect(
                 lambda: self.show_del_campaign_dlg(campaign)
             )
@@ -198,6 +205,7 @@ class MainWin(QMainWindow, Ui_MainWindow):
             # unset as active (if currently active)
             if campaign is self.model.campaign:
                 unset_as_active_action = menu.addAction('Unset as Active')
+                # noinspection PyUnresolvedReferences
                 unset_as_active_action.triggered.connect(
                     lambda: setattr(self.controller, 'active_campaign_i', None)
                 )
