@@ -2,11 +2,12 @@ import logging
 
 from .model.campaign import Campaign
 from .model.lead_model import Model
-from .model.translation import Translation, ColumnTranslation
+from .model.translation import Translation, ColumnTranslation, ValidationReport
 from .model.display_models import TranslationTableModel
 from .ui.main_win import MainWin
 
 
+# pylint: disable=W0703
 class Controller:
     def __init__(self, model: Model, view: MainWin):
         self.model = model
@@ -31,7 +32,7 @@ class Controller:
                 main='Finished moving cell values'
             )
 
-    def check(self, translation=None):
+    def check(self, translation: Translation=None):
         logger = logging.getLogger(__name__)
         logger.debug('checking for duplicates and whitespace')
         # make translation without committing, to be used to find
@@ -40,10 +41,7 @@ class Controller:
         try:
             if not translation:
                 translation = self._make_translation()
-            duplicates = translation.get_duplicate_positions()
-            self.view.duplicates_feedback(duplicates)
-            whitespaces = translation.get_whitespace_positions()
-            self.view.whitespace_feedback(whitespaces)
+            self.view.display_validation_report(translation.check())
         except Exception as e:
             self.view.show_exception(e, main='Could not check data.')
 
