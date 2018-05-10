@@ -581,7 +581,20 @@ class Validator:
             translation_data: '_TranslationData',
             records: 'RecordCollection'=None
     ) -> ty.Set['Issue']:
-        pass  # extended by subclasses
+        """
+        validate() checks that cell passes checks and returns a set
+        of Issues.
+
+        This method is intended to be overwritten by subclasses that
+        perform their own checks.
+        :param cell_data: CellData.
+        :param translation_data: TranslationData.
+        :param records: RecordCollection.
+        :return: set[Issue]
+        """
+        # Extended by subclasses.
+        raise NotImplementedError(
+            'validate should be overwritten by subclasses')
 
 
 class BasicValidator(Validator):
@@ -606,6 +619,15 @@ class BasicValidator(Validator):
             translation_data: '_TranslationData',
             records: 'RecordCollection'=None
     ) -> ty.Set['Issue']:
+        """
+        Checks that cell data does not have whitespace, if whitespace
+        check option is set, and is not a duplicate value, if duplicate
+        check option is set.
+        :param cell_data: CellData
+        :param translation_data: _TranslationData
+        :param records: RecordCollection
+        :return: set[Issue]CommitReport
+        """
         issues: ty.Set['Issue'] = set()
         if self.check_for_whitespace and cell_data.cell.has_whitespace:
             cell = cell_data.cell

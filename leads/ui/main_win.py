@@ -39,7 +39,7 @@ class MainWin(QMainWindow, Ui_MainWindow):
 
     def startup(self):
         """
-        Performs actions that need to be carried out at beginning of run
+        Performs actions that need to be carried out at beginning of run.
         :return: None
         """
         if self.model.campaigns.is_empty:
@@ -118,7 +118,7 @@ class MainWin(QMainWindow, Ui_MainWindow):
 
     # Context menus
 
-    def _open_sheet_context_menu(self, event):
+    def _open_sheet_context_menu(self, _: QContextMenuEvent) -> None:
         """
         Method called when user opens the context menu for an open
         sheet item.
@@ -347,8 +347,7 @@ class MainWin(QMainWindow, Ui_MainWindow):
         dlg.setInformativeText(info)
         dlg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
         dlg.setStyleSheet(self.styleSheet())
-        result = dlg.exec()
-        if result == QMessageBox.Yes:
+        if dlg.exec() == QMessageBox.Yes:
             self.show_make_campaign_dlg()
 
     def show_make_campaign_dlg(self):
