@@ -160,7 +160,7 @@ class Translation:
         """
         Adds translation to queue which when applied, copies cell data
         from source column to target column.
-        :param translations: ColumnTranslation any number of translations
+        :param translations: ColumnTranslation any number of translations.
         """
 
         logger = logging.getLogger(__name__)
@@ -174,7 +174,7 @@ class Translation:
 
     def clear_target(self):
         """
-        Clears target sheet of conflicting cell data
+        Clears target sheet of conflicting cell data.
         Raises dialog for user to ok if anything is to be deleted.
         """
 
@@ -201,7 +201,7 @@ class Translation:
     @property
     def source_sheet(self):
         """
-        Gets source sheet
+        Gets source sheet.
         :return: Sheet
         """
         return self._source_sheet
@@ -209,7 +209,7 @@ class Translation:
     @property
     def target_sheet(self):
         """
-        Gets target sheet
+        Gets target sheet.
         :return: Sheet
         """
         return self._target_sheet
@@ -226,7 +226,7 @@ class Translation:
     @source_start_row.setter
     def source_start_row(self, new_index):
         """
-        Sets the row index at which cells begin to be copied
+        Sets the row index at which cells begin to be copied.
         :param new_index: int
         """
         assert isinstance(new_index, int)
@@ -235,7 +235,7 @@ class Translation:
     @property
     def target_start_row(self):
         """
-        Gets the row index at which cells begin to be written to
+        Gets the row index at which cells begin to be written to.
         :return: int
         """
         return self._target_start_row
@@ -243,7 +243,7 @@ class Translation:
     @target_start_row.setter
     def target_start_row(self, new_index):
         """
-        Sets the row index at which cells begin to be written to
+        Sets the row index at which cells begin to be written to.
         :param new_index: int
         """
         assert isinstance(new_index, int)
@@ -252,7 +252,7 @@ class Translation:
     @property
     def column_translations(self):
         """
-        Returns list of column translations
+        Returns list of column translations.
         :return: list of ColumnTranslations
         """
         return self._column_translations.copy()
@@ -273,6 +273,7 @@ class ColumnTranslation:
             target_column_name=None,
             validator: 'Validator'=None,
     ) -> None:
+        # Check that source column name xor index has been passed.
         if bool(source_column_i is None) == bool(source_column_name is None):
             raise ValueError(
                 'Source column index or name must be passed, but not both. '
@@ -280,6 +281,7 @@ class ColumnTranslation:
                 ' (%s) respectively'
                 % (source_column_i, source_column_i.__class__.__name__,
                    source_column_name, source_column_name.__class__.__name__))
+        # Check that target column name xor index has been passed.
         if bool(target_column_i is None) == bool(target_column_name is None):
             raise ValueError(
                 'Target column index or name must be passed, but not both. '
@@ -300,7 +302,7 @@ class ColumnTranslation:
     @property
     def source_sheet(self) -> Sheet:
         """
-        Gets source sheet, from which cells are retrieved
+        Gets source sheet, from which cells are retrieved.
         :return: Sheet
         """
         return self._parent_translation.source_sheet
@@ -308,7 +310,7 @@ class ColumnTranslation:
     @property
     def source_column_i(self) -> int:
         """
-        Gets source column identifier
+        Gets source column identifier.
         :return: int
         """
         if self._source_column_i is not None:
@@ -319,7 +321,7 @@ class ColumnTranslation:
     @source_column_i.setter
     def source_column_i(self, new_column: int):
         """
-        Sets source column
+        Sets source column.
         :param new_column: int
         """
         assert isinstance(new_column, int)
@@ -355,7 +357,7 @@ class ColumnTranslation:
     @property
     def source_column(self) -> Column:
         """
-        Gets source column
+        Gets source column.
         :return: Office.Column
         """
         if self._source_column_i is not None:
@@ -369,7 +371,7 @@ class ColumnTranslation:
     @property
     def target_sheet(self):
         """
-        Gets target sheet, to which cells are moved
+        Gets target sheet, to which cells are moved.
         :return: Sheet
         """
         return self._parent_translation.target_sheet
@@ -570,13 +572,8 @@ class Validator:
     """
     cell_data_type = CellData
 
-    def __call__(
-            self,
-            cell_data: CellData,
-            translation_data: '_TranslationData',
-            records: 'RecordCollection'=None
-    ) -> ty.Set['Issue']:
-        return self.validate(cell_data, translation_data, records)
+    def __call__(self, *args, **kwargs) -> ty.Set['Issue']:
+        return self.validate(*args, **kwargs)
 
     def validate(
             self,
