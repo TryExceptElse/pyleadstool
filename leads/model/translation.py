@@ -608,6 +608,12 @@ class BasicValidator(Validator):
             white_chk: bool=True,
             min_dup_age: float=0
     ) -> None:
+        """
+        Initializes a new BasicValidator.
+        :param dup_chk:
+        :param white_chk:
+        :param min_dup_age:
+        """
         self.check_for_duplicates: bool = dup_chk
         self.check_for_whitespace: bool = white_chk
         # duration after which a duplicate value is acceptable
@@ -626,7 +632,7 @@ class BasicValidator(Validator):
         :param cell_data: CellData
         :param translation_data: _TranslationData
         :param records: RecordCollection
-        :return: set[Issue]CommitReport
+        :return: set[Issue]
         """
         issues: ty.Set['Issue'] = set()
         if self.check_for_whitespace and cell_data.cell.has_whitespace:

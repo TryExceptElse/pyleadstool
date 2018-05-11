@@ -1,0 +1,5 @@
+[MASTER]
+rcfile=.pylintrc
+ignore=layout
+good-names=i,j,k,e,ex,x,y,f,s,d
+disable=E0602  # Too many false positives, and no easy fix

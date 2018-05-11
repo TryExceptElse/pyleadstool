@@ -3,6 +3,7 @@ Module storing classes for storing user preferences, information
 about program state, etc
 """
 import json
+import typing as ty
 
 
 class Preferences:
@@ -13,15 +14,6 @@ class Preferences:
             self.load()
         except FileNotFoundError:
             pass  # if file is unreadable, just use empty settings dict
-
-    def __getitem__(self, k):
-        return self.d[k]
-
-    def __setitem__(self, k, v):
-        self.d[k] = v
-
-    def __delitem__(self, k):
-        del self.d[k]
 
     # File IO methods
 
@@ -38,3 +30,54 @@ class Preferences:
 
     def from_file(self, f):
         self.d = json.load(f)
+
+    # Getters and Setters
+
+    # .....
+
+
+def restrict_inputs(*valid_inputs: object):
+    valid_input_set = set(valid_inputs)
+
+    def decorator(f):
+        def wrapper(self, arg):
+            if arg not in valid_input_set:
+                raise ValueError(
+                    f'{f.__name__} given invalid input: {arg}, valid inputs'
+                    f'are: {valid_inputs}'
+                )
+            return f(self, arg)
+
+        wrapper.__name__ = f.__name__ + '_wrapper'
+
+        return wrapper
+
+    return decorator
+
+
+class CampaignPreferences(Preferences):
+
+    WHITESPACE_ACTION = 'whitespace_action'
+    DUPLICATE_ACTION = 'duplicate_action'
+
+    REMOVE = 'remove'
+    HIGHLIGHT = 'highlight'
+    IGNORE = 'ignore'
+
+    @property
+    def whitespace_action(self) -> str:
+        return self.d[self.WHITESPACE_ACTION]
+
+    @whitespace_action.setter
+    @restrict_inputs(REMOVE, HIGHLIGHT, IGNORE)
+    def whitespace_action(self, new_setting):
+        self.d[self.WHITESPACE_ACTION] = new_setting
+
+    @property
+    def duplicate_action(self) -> str:
+        return self.d[self.DUPLICATE_ACTION]
+
+    @duplicate_action.setter
+    @restrict_inputs(REMOVE, HIGHLIGHT, IGNORE)
+    def duplicate_action(self, new_setting):
+        self.d[self.DUPLICATE_ACTION] = new_setting

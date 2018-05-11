@@ -2,13 +2,19 @@ import logging
 
 from .model.campaign import Campaign
 from .model.lead_model import Model
-from .model.translation import Translation, ColumnTranslation, ValidationReport
+from .model.translation import Translation, ColumnTranslation, \
+    ValidationReport, BasicValidator
 from .model.display_models import TranslationTableModel
 from .ui.main_win import MainWin
 
 
 # pylint: disable=W0703
 class Controller:
+    """
+    This class provides a place for additional methods that handle
+    logic resulting from user actions, which is not directly related
+    to the view.
+    """
     def __init__(self, model: Model, view: MainWin):
         self.model = model
         self.view = view
@@ -20,7 +26,7 @@ class Controller:
         logger = logging.getLogger(__name__)
         logger.debug('creating & applying translation')
         try:
-            translation = self._make_translation()
+            translation: Translation = self._make_translation()
             self.check(translation)  # show detected whitespace + duplicates
             translation.commit()
         except Exception as e:
@@ -249,8 +255,6 @@ class Controller:
             target_sheet=self.model.target_sheet,
             source_start_row=self.model.source_sheet_start,
             target_start_row=self.model.target_sheet_start,
-            whitespace_action=self.model.whitespace_action,
-            duplicate_action=self.model.duplicate_action,
             overwrite_confirm_func=self.view.confirm_tgt_overwrite,
             record_to_read=self.model.records
         )
@@ -259,7 +263,10 @@ class Controller:
             assert isinstance(col_entry, TranslationTableModel.ColEntry)
             col_translation = ColumnTranslation(
                 parent_translation=translation,
-                source_column_i=col_entry.src_col.index
+                source_column_i=col_entry.src_col.index,
+                validator=BasicValidator(
+                    
+                )
             )
             translation.add_column_translation(col_translation)
         return translation
