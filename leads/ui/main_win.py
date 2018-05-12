@@ -15,14 +15,6 @@ from ..model.lead_model import Model
 # Constants used in GUI
 WINDOW_TITLE = 'Leads Translator'
 
-WHITESPACE_REMOVE_STR = 'Remove Whitespace'
-WHITESPACE_HIGHLIGHT_STR = 'Highlight'
-WHITESPACE_IGNORE_STR = 'Do nothing'
-
-DUPLICATE_REMOVE_ROW_STR = 'Remove row'
-DUPLICATE_HIGHLIGHT_STR = 'Highlight'
-DUPLICATE_IGNORE_STR = 'Do nothing'
-
 
 class MainWin(QMainWindow, Ui_MainWindow):
     """
@@ -236,59 +228,6 @@ class MainWin(QMainWindow, Ui_MainWindow):
             QMessageBox.Cancel
         )
         return reply == QMessageBox.Yes
-
-    def whitespace_feedback(self, whitespace_positions: tuple or list):
-        """
-        Reports to user on whitespace removals.
-        :param whitespace_positions:
-        """
-        if not whitespace_positions:
-            return
-        print('giving whitespace feedback')
-        info_string = ''
-        if self.model.whitespace_action == WHITESPACE_REMOVE_STR:
-            info_string = (
-                'Cell values were edited to remove '
-                'unneeded tab, linefeed, return, formfeed, '
-                'and/or vertical tab characters.')
-        elif self.model.whitespace_action == WHITESPACE_HIGHLIGHT_STR:
-            info_string = (
-                '%s Cell values were highlighted in '
-                'checked '
-                'columns' % len(whitespace_positions))
-        self.show_info_dlg(
-            title='Whitespace Found',
-            main='Whitespace found in %s cells' % len(
-                whitespace_positions),
-            info=info_string,
-            detail=self._position_report(*whitespace_positions)
-        )
-
-    def duplicates_feedback(self, duplicate_positions: tuple or list) -> None:
-        """
-        Provides feedback to user about duplicates and actions taken
-        regarding said duplicates.
-        :param duplicate_positions: iterable of duplicate_positions
-        """
-        if not duplicate_positions or \
-                self.duplicate_action == DUPLICATE_IGNORE_STR:
-            return
-        print('giving duplicates feedback')
-        info_string = ''
-        if self.duplicate_action == DUPLICATE_HIGHLIGHT_STR:
-            info_string = '%s Cell values were highlighted in ' \
-                               'checked columns' % len(duplicate_positions)
-        elif self.duplicate_action == DUPLICATE_REMOVE_ROW_STR:
-            n_rows_w_duplicates = len(set(
-                [pos[1] for pos in duplicate_positions]))
-            info_string = '%s Cell rows containing duplicate ' \
-                'values were removed' % n_rows_w_duplicates
-        self.show_info_dlg(
-            title='Duplicate Values',
-            main='%s Duplicate cell values found' % len(duplicate_positions),
-            info=info_string,
-            detail=self._position_report(*duplicate_positions)
-        )
 
     def _position_report(self, *src_positions):
         """

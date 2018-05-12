@@ -3,7 +3,6 @@ Module storing classes for storing user preferences, information
 about program state, etc
 """
 import json
-import typing as ty
 
 
 class Preferences:
@@ -33,8 +32,6 @@ class Preferences:
 
     # Getters and Setters
 
-    # .....
-
 
 def restrict_inputs(*valid_inputs: object):
     valid_input_set = set(valid_inputs)
@@ -49,7 +46,6 @@ def restrict_inputs(*valid_inputs: object):
             return f(self, arg)
 
         wrapper.__name__ = f.__name__ + '_wrapper'
-
         return wrapper
 
     return decorator
@@ -70,7 +66,7 @@ class CampaignPreferences(Preferences):
 
     @whitespace_action.setter
     @restrict_inputs(REMOVE, HIGHLIGHT, IGNORE)
-    def whitespace_action(self, new_setting):
+    def whitespace_action(self, new_setting: str):
         self.d[self.WHITESPACE_ACTION] = new_setting
 
     @property
@@ -79,5 +75,5 @@ class CampaignPreferences(Preferences):
 
     @duplicate_action.setter
     @restrict_inputs(REMOVE, HIGHLIGHT, IGNORE)
-    def duplicate_action(self, new_setting):
+    def duplicate_action(self, new_setting: str):
         self.d[self.DUPLICATE_ACTION] = new_setting

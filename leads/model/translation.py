@@ -16,14 +16,6 @@ from .sheets import Sheet, Column, Cell, Row, DEFAULT_COLOR, NONE_STRING
 from .colors import DUPLICATE_CELL_COLOR, DUPLICATE_ROW_COLOR, \
         WHITESPACE_CELL_COLOR, WHITESPACE_ROW_COLOR
 
-WHITESPACE_REMOVE_STR = 'Remove Whitespace'
-WHITESPACE_HIGHLIGHT_STR = 'Highlight'
-WHITESPACE_IGNORE_STR = 'Do nothing'
-
-DUPLICATE_REMOVE_ROW_STR = 'Remove row'
-DUPLICATE_HIGHLIGHT_STR = 'Highlight'
-DUPLICATE_IGNORE_STR = 'Do nothing'
-
 SOURCE_COLUMN_NAME_KEY = 'source_column_name'
 TARGET_COLUMN_NAME_KEY = 'target_column_name'
 SOURCE_COLUMN_INDEX_KEY = 'source_column_i'
